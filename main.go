@@ -1,9 +1,9 @@
 package main
 
 import (
-	// "fmt"
+	"fmt"
 	"go-template-parser/lexer"
-	"go-template-parser/parser"
+	// "go-template-parser/parser"
 )
 
 func main() {
@@ -13,12 +13,16 @@ func main() {
 	// content = []byte("<p>Petterson, {{ $name : = dict \"little timmy\" 23 }} !</p>")
 	// content = []byte("<p>Petterson, {{ $name := dict 'little timmy' 23 }} !</p>")
 
-	tokens := lexer.Tokenizer(content)
+	// _ = lexer.Tokenize(content)
+	tokens := lexer.Tokenize(content)
+	fmt.Println(lexer.PrettyTokenFormater(tokens))
 
 	// str := lexer.PrettyTokenFormater(tokens)
 	// fmt.Printf("%s", str)
 
+	/*
 	rootNode := parser.Parse(tokens)
 	parser.SemanticalAnalisis(rootNode)
+	*/
 }
 

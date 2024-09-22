@@ -2,7 +2,7 @@ package lexer
 
 import (
 	"bytes"
-	"fmt"
+	// "fmt"
 	"regexp"
 )
 
@@ -12,22 +12,21 @@ type Position struct {
 
 }
 
-func (p Position) String() string {
-	return fmt.Sprintf("{ \"Line\": %d, \"Character\": %d }", p.Line, p.Character)
-}
-
 type Range struct {
 	Start	Position
 	End	Position
 }
 
-func (r Range) String() string {
-	return fmt.Sprintf("{ \"Start\": %s, \"End\": %s }", r.Start, r.End)
-}
-
+// TODO: Refactor this to 'parser' package
 type ParseError struct {
 	Err	error
 	Range
+}
+
+type LexerError struct {
+	Err	error
+	Range	Range
+	Token	*Token
 }
 
 type Kind int
@@ -38,12 +37,11 @@ type Token struct {
 	Value	[]byte
 }
 
-func (t Token) String() string {
-	return fmt.Sprintf("{ \"ID\": %d, \"Range\": %s, \"Value\": %q }", t.ID, t.Range, t.Value)
-}
-
 const (
 	VARIABLE Kind = iota
+	DOT_VARIABLE
+	DOLLAR_VARIABLE
+	FUNCTION
 	IDENTIFIER
 	ASSIGNEMENT
 	ASSIGNEMENT_DEFINITION
@@ -56,33 +54,33 @@ const (
 	NOT_FOUND
 )
 
-/*
-func main() {
-	tokenizer()
-}
-*/
-func PrettyTokenFormater (tokens []Token) string {
-	str := "["
-	for _, tok := range tokens {
-		str += fmt.Sprintf("%s,", tok)
+func Tokenize(content []byte) []Token {
+	content = bytes.Clone(content)
+
+	templateCodes, templatePositions := extractTemplateCode(content)
+
+	var tokens []Token
+	var endOfragment Token
+
+	for i := 0; i < len(templateCodes); i++ {
+		code := templateCodes[i]
+		position := templatePositions[i]
+
+		fragment := tokenizeLine(code, position)
+
+		endOfragment = Token { ID: EOL, Value: []byte("#EOL"), Range: position }
+		fragment = append(fragment, endOfragment)
+
+		tokens = append(tokens, fragment...)
 	}
 
-	str = str[:len(str) - 1]
-	str += "]"
-
-	// fmt.Printf("%s", str)
-	return str
+	return tokens
 }
 
-func Tokenizer(content []byte) []Token {
+func extractTemplateCode (content []byte) ([][]byte, []Range) {
 	var templateCode [][]byte
-	var templateCodePosition []Range
+	var templatePositions []Range
 
-	// content :=  []byte("<p>Hello, {{  \n  .Name \n \n}}</p>")
-	// content = append(content, []byte("<p>{{   $rita    \n:=\n.user.friends.favorite \r\t }} -- {{ print .user.friends.best.age }}</p>")...)
-	// content = append(content, []byte("\n {{ print \"dummy text\" | convert_to_int | isOkay }}")...)
-
-	// filterTemplateStatementOnly
 	captureTemplateStatementOnly := regexp.MustCompile("(?:{{(?:.|[\n\t\r])*?}})")
 
 	count := 0
@@ -116,47 +114,21 @@ func Tokenizer(content []byte) []Token {
 		currentLine = templatePosition.End.Line
 		currentColumn = templatePosition.End.Character
 
-		templateCodePosition = append(templateCodePosition, templatePosition)
 
-		insideTemplate := content[loc[0] + 2 : loc[1] - 2] // Trim '{{' and '}}'
+		// Trim '{{' and '}}'
+		insideTemplate := content[loc[0] + 2 : loc[1] - 2]
+
+		templatePosition.Start.Character += 2
+		templatePosition.End.Character -= 1
+		templatePositions = append(templatePositions, templatePosition)
+
 		templateCode = append(templateCode, insideTemplate)
 		count += loc[1]
 
 		content = content[loc[1]:]
 	}
 
-	var tokens []Token
-	var endOfragment Token
-
-	for _, lineCode := range templateCode {
-		fragment, pos := tokenize(lineCode)
-		_ = pos
-
-		endOfragment = Token { ID: EOL, Value: []byte("#EOL") }
-		fragment = append(fragment, endOfragment)
-
-		tokens = append(tokens, fragment...)
-	}
-
-	/*
-	str := "["
-	for _, tok := range tokens {
-		str += fmt.Sprintf("%s,", tok)
-	}
-
-	str = str[:len(str) - 1]
-	str += "]"
-
-	fmt.Printf("%s", str)
-	*/
-
-	return tokens
-
-	// 1. First step, fetch only necessary contain 
-
-	// 2. Tokenize the template extracted from text
-
-	// 3. Repeat Step 1. and 2. until there is no more text read
+	return templateCode, templatePositions
 }
 
 // Alt name: getCursorPosition(data, charPos)
@@ -184,9 +156,8 @@ func convertToTextEditorPosition (buffer []byte, charIndex int) Position {
 	return charPosition
 }
 
-func tokenize(data []byte) ([]Token, []Range) {
+func tokenizeLine(data []byte, initialPosition Range) []Token  {
 	tokens := []Token{}
-	tokensPosition := []Range{}
 
 	ignorePattern := []string{`\s+`}
 
@@ -258,14 +229,22 @@ func tokenize(data []byte) ([]Token, []Range) {
 			loc := reg.FindIndex(data)
 
 			if loc != nil && loc[0] == 0 {
+				line := currentLocalLineNumber + initialPosition.Start.Line
+				column := currentLocalColumnNumber
+
+				if currentLocalLineNumber == 0 {
+					column += initialPosition.Start.Character
+				}
+
+				// what if line > initialPosition.End.Line ??
+
 				pos := Range{
-					Start: Position{Line: currentLocalLineNumber, Character: currentLocalColumnNumber},
-					End: Position{Line: currentLocalLineNumber, Character: currentLocalColumnNumber + loc[1]},
+					Start: Position{Line: line, Character: column},
+					End: Position{Line: line, Character: column + loc[1]},
 				}
 
 				currentLocalColumnNumber += loc[1]
 
-				tokensPosition = append(tokensPosition, pos)
 				token := Token {
 					Value: data[0:loc[1]],
 					ID: pattern.ID,
@@ -291,7 +270,7 @@ func tokenize(data []byte) ([]Token, []Range) {
 		data = nil
 	}
 
-	return tokens, tokensPosition
+	return tokens
 }
 
 
