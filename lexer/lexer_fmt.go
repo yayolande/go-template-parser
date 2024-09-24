@@ -13,10 +13,20 @@ func (r Range) String() string {
 func (t Token) String() string {
 	return fmt.Sprintf("{ \"ID\": %d, \"Range\": %s, \"Value\": %q }", t.ID, t.Range, t.Value)
 }
-func PrettyTokenFormater (tokens []Token) string {
+
+func (e LexerError) String() string {
+	return fmt.Sprintf(`{ "Err": "%s", "Range": %s, "Token": %s }`, e.Err.Error(), e.Range, e.Token)
+}
+
+//func PrettyFormater(arr []fmt.Stringer) string {
+func PrettyFormater[T fmt.Stringer](arr []T) string {
+	if len(arr) == 0 {
+		return "[]"
+	}
+
 	str := "["
-	for _, tok := range tokens {
-		str += fmt.Sprintf("%s,", tok)
+	for _, el := range arr {
+		str += fmt.Sprintf("%s,", el)
 	}
 
 	str = str[:len(str) - 1]
@@ -24,3 +34,5 @@ func PrettyTokenFormater (tokens []Token) string {
 
 	return str
 }
+
+
