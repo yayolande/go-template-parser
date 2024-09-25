@@ -6,6 +6,13 @@ import (
 	"go-template-parser/lexer"
 )
 
+// TODO: Refactor this to 'parser' package
+type ParseError struct {
+	Err	error
+	Range	lexer.Range
+}
+
+
 var (
 	input []lexer.Token
 	OpenedNodeStack []AstNode

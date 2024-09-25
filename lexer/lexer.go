@@ -9,18 +9,11 @@ import (
 type Position struct {
 	Line	int
 	Character	int
-
 }
 
 type Range struct {
 	Start	Position
 	End	Position
-}
-
-// TODO: Refactor this to 'parser' package
-type ParseError struct {
-	Err	error
-	Range
 }
 
 type LexerError struct {
@@ -38,9 +31,9 @@ type Token struct {
 }
 
 const (
-	VARIABLE Kind = iota
-	DOT_VARIABLE
+	DOT_VARIABLE	Kind = iota
 	DOLLAR_VARIABLE
+	KEYWORD
 	FUNCTION
 	IDENTIFIER
 	ASSIGNEMENT
@@ -49,6 +42,10 @@ const (
 	NUMBER
 	EQUAL_COMPARISON
 	PIPE
+	LEFT_PAREN
+	RIGTH_PAREN
+	COMMENT
+	SPACE_EATER
 	EOL	// End Of Line
 	EOF
 	NOT_FOUND
@@ -59,9 +56,6 @@ func Tokenize(content []byte) ([]Token, []Token, []LexerError) {
 	content = bytes.Clone(content)
 
 	templateCodes, templatePositions := extractTemplateCode(content)
-
-	// fmt.Printf("templateLines = %q", templateCodes)
-	// fmt.Println(PrettyFormater(templatePositions))
 
 	var errs []LexerError
 	var tokens []Token
@@ -93,6 +87,7 @@ func Tokenize(content []byte) ([]Token, []Token, []LexerError) {
 func extractTemplateCode (content []byte) ([][]byte, []Range) {
 	var templateCode [][]byte
 	var templatePositions []Range
+	var insideTemplate []byte
 
 	captureLonelyTemplateDelimitator := regexp.MustCompile("{{|}}")
 	captureTemplateStatementOnly := regexp.MustCompile("(?:{{(?:[^{}]|[\n\r\t])*?}})")
@@ -104,7 +99,6 @@ func extractTemplateCode (content []byte) ([][]byte, []Range) {
 	var templatePosition Range
 
 	for {
-		// TODO: Allocation below is not performant. Change it !
 		loneLoc = captureLonelyTemplateDelimitator.FindIndex(content)
 		loc = captureTemplateStatementOnly.FindIndex(content)
 
@@ -134,7 +128,7 @@ func extractTemplateCode (content []byte) ([][]byte, []Range) {
 		currentColumn = templatePosition.End.Character + 1
 
 		// Trim '{{' and '}}'
-		insideTemplate := content[loc[0] + 2 : loc[1] - 2]
+		insideTemplate = content[loc[0] + 2 : loc[1] - 2]
 
 		templatePosition.Start.Character += 2
 		templatePosition.End.Character -= 1
@@ -188,81 +182,28 @@ func convertRangeIndexToTextEditorPosition(editorContent []byte, rangeIndex []in
 }
 
 func tokenizeLine(data []byte, initialPosition Range) ([]Token, []LexerError)  {
-	tokens := []Token{}
 
-	ignorePattern := string(`\s+`)
+	tokenizer := createTokenizer()
+	data, isCommentAllowed, isTrimmed, err := handleExternalWhiteSpaceTrimmer(data, initialPosition) 
+
+	if err != nil {
+		tokenizer.Errs = append(tokenizer.Errs, *err)
+	}
+
+	if isTrimmed[0] {
+		initialPosition.Start.Character ++
+	}
+
+	patternTokens := tokenizer.PatternToRecognize
+	ignorePattern := tokenizer.PatternToIgnore
+
 	regIgnore := regexp.MustCompile(ignorePattern)
-
-	type PatternToken struct {
-		Value	string
-		ID	Kind
-		CanBeRightAfterToken bool
-	}
-
-	// (tokenRecognizerPattern) Tokens' meaning: VariableName, ID (function ?), '==' '=' ':='
-	patternTokens:= []PatternToken{
-		/*
-		{
-			Value: `(?:[.$]\w+)+`,
-			ID: VARIABLE,
-		},
-		*/
-		{
-			// Value: `"[^"]+"`,
-			Value: `"(?:[^"\n\\]|\\.)+"`,
-			ID: STRING,
-		},
-		{
-			Value: `[$]\w+(?:[.]\w+)*`,
-			ID: NUMBER,
-		},
-		{
-			Value: `[$]\w+(?:[.][a-zA-Z_]\w*)*`,
-			ID: DOLLAR_VARIABLE,
-		},
-		{
-			// TODO: Check that this new code is correct
-			// Value: `[.]\w+(?:[.]\w+)*`,
-			Value: `[.][a-zA-Z_]\w*(?:[.][a-zA-Z_]\w*)*`,
-			ID: DOT_VARIABLE,
-		},
-		{
-			Value: `\w+`,
-			ID: FUNCTION,
-		},
-		/*
-		{
-			Value: `\w+`,
-			ID: IDENTIFIER,
-		},
-		*/
-		{
-			Value: "==",
-			ID: EQUAL_COMPARISON,
-			CanBeRightAfterToken: true,
-		},
-		{
-			Value: "=",
-			ID: ASSIGNEMENT,
-			CanBeRightAfterToken: true,
-		},
-		{
-			Value: ":=",
-			ID: ASSIGNEMENT_DEFINITION,
-			CanBeRightAfterToken: true,
-		},
-		{
-			Value: "[|]",
-			ID: PIPE,
-			CanBeRightAfterToken: true,
-		},
-	}
 
 	var reg *regexp.Regexp
 	var loc []int
-	var errs []LexerError = nil
 
 	var isCurrentTokenSeparatedFromPrevious bool = true
+	var isPreviousTokenAcceptBindingToken bool = true
 	var found bool
 
 	var lengthDataStart int = -1
@@ -289,6 +230,7 @@ func tokenizeLine(data []byte, initialPosition Range) ([]Token, []LexerError)  {
 			currentLocalColumnNumber += position.Character
 
 			isCurrentTokenSeparatedFromPrevious = true
+			isPreviousTokenAcceptBindingToken = true
 			data = data[loc[1]:]
 		}
 
@@ -297,43 +239,22 @@ func tokenizeLine(data []byte, initialPosition Range) ([]Token, []LexerError)  {
 			reg = regexp.MustCompile(pattern.Value)
 			loc = reg.FindIndex(data)
 
-			isCurrentTokenSeparatedFromPrevious = 
-				isCurrentTokenSeparatedFromPrevious || pattern.CanBeRightAfterToken
+			isCurrentTokenSeparatedFromPrevious = isCurrentTokenSeparatedFromPrevious || 
+				pattern.CanBeRightAfterToken || isPreviousTokenAcceptBindingToken
 
 			if loc != nil && loc[0] == 0 {
-				if ! isCurrentTokenSeparatedFromPrevious {
+				if pattern.ID == COMMENT && ! isCommentAllowed {
+					break
+				} else if ! isCurrentTokenSeparatedFromPrevious {
 					break
 				}
 
-				/*
-				line := currentLocalLineNumber + initialPosition.Start.Line
-				column := currentLocalColumnNumber
-
-				if currentLocalLineNumber == 0 {
-					column += initialPosition.Start.Character
-				}
-
-				pos := Range{
-					Start: Position{Line: line, Character: column},
-					End: Position{Line: line, Character: column + loc[1]},
-				}
-				*/
-
-				// line := currentLocalLineNumber + initialPosition.Start.Line
-				// column := currentLocalColumnNumber
-
-				// loc[0] -= 1
 				pos := convertRangeIndexToTextEditorPosition(data, loc, currentLocalLineNumber, currentLocalColumnNumber)
-
 				currentLocalColumnNumber += loc[1]
 
-				token := Token {
-					Value: data[0:loc[1]],
-					ID: pattern.ID,
-					Range: pos,
-				}
-				tokens = append(tokens, token)
+				tokenizer.appendToken(pattern.ID, pos, data[0:loc[1]])
 
+				isPreviousTokenAcceptBindingToken = pattern.CanBeRightAfterToken
 				isCurrentTokenSeparatedFromPrevious = false
 				found = true
 				data = data[loc[1]:]
@@ -346,12 +267,14 @@ func tokenizeLine(data []byte, initialPosition Range) ([]Token, []LexerError)  {
 		if !found && len(data) > 0 {
 			loc = regIgnore.FindIndex(data)
 
-			line := currentLocalLineNumber + initialPosition.Start.Line
-			column := currentLocalColumnNumber
-
-			if currentLocalLineNumber == 0 {
-				column += initialPosition.Start.Character
+			if loc == nil {
+				loc = []int{ 0, len(data) }
+			} else {
+				loc = []int{ 0, loc[0] }
 			}
+
+			pos := convertRangeIndexToTextEditorPosition(data, loc, currentLocalLineNumber, currentLocalColumnNumber)
+			currentLocalColumnNumber += loc[1]
 
 			var err error
 			if isCurrentTokenSeparatedFromPrevious {
@@ -360,70 +283,235 @@ func tokenizeLine(data []byte, initialPosition Range) ([]Token, []LexerError)  {
 				err = errors.New("character(s) not recognized, perhaps you should properly separate the word")
 			}
 
-			var text []byte
-			var pos Range
-
-			if loc == nil {
-				pos = Range{
-					Start: Position{Line: line, Character: column},
-					End: initialPosition.End,
-				}
-
-				text = data
-				data = nil
-			} else {
-				pos = Range{
-					Start: Position{Line: line, Character: column},
-					End: Position{Line: line, Character: column + loc[1]},
-				}
-
-				text = data[:loc[0]]
-				data = data[loc[0]:]
-			}
-
 			kindError := NOT_FOUND
-
-			if bytes.Compare(text, []byte("{{")) == 0 || bytes.Compare(text, []byte("}}")) == 0 {
+			if bytes.Compare(data[:loc[1]], []byte("{{")) == 0 || bytes.Compare(data[:loc[1]], []byte("}}")) == 0 {
 				err = errors.New("Missing matching template delimitator pair")
 				kindError = UNEXPECTED
 			}
 
-			token := Token {
-				ID: kindError,
-				Value: text,
-				Range: pos,
-			}
+			tokenizer.appendToken(kindError, pos, data[:loc[1]])
+			token := tokenizer.getLastInsertedToken()
+			tokenizer.appendError(err, token)
 
-			lexErr := LexerError{
-				Err: err,
-				Range: token.Range,
-				Token: &token,
-			}
-
-			errs = append(errs, lexErr)
-			tokens = append(tokens, token)
+			data = data[loc[1]:]
 		}
 	}
 
 	if len(data) > 0 {
-		token := Token {
-			Value: data,
-			ID: UNEXPECTED,
-		}
-
-		lexErr := LexerError{
-			Err: errors.New("unexpected character(s)"),
-			Token: &token,
-			Range: initialPosition,
-		}
-
-		errs = append(errs, lexErr)
-		tokens = append(tokens, token)
+		tokenizer.appendToken(UNEXPECTED, initialPosition, data)
+		token := tokenizer.getLastInsertedToken()
+		tokenizer.appendError(errors.New("unexpected character(s)"), token)
 
 		data = nil
 	}
 
-	return tokens, errs
+	if len(tokenizer.Tokens) == 0 {
+		tokenizer.appendError(errors.New("empty tepmlate not allowed"), &Token{ID: NOT_FOUND, Range: initialPosition})
+	}
+
+	return tokenizer.Tokens, tokenizer.Errs
 }
 
+func handleExternalWhiteSpaceTrimmer(data []byte, pos Range) ([]byte, bool, [2]bool, *LexerError) {
+	isLeftCommentAllowed, isRigthCommentAllowed := false, false
+	isRigthTrimmed, isLeftTrimmed := false, false
+
+	var err *LexerError = nil
+
+	if len(data) < 2 {
+		isCommentAllowed := isLeftCommentAllowed && isRigthCommentAllowed
+		isTrimmed := [2]bool{ isLeftTrimmed, isRigthTrimmed }
+
+		return data, isCommentAllowed, isTrimmed, err
+	}
+
+	//
+	// Simple comment detection : {{/* ... */}}
+	//
+	if bytes.Compare(data[:1], []byte("/")) == 0 {
+		isLeftCommentAllowed = true
+	}
+
+	lastElement := len(data) - 1
+	if bytes.Compare(data[lastElement:], []byte("/")) == 0 {
+		isRigthCommentAllowed = true
+	}
+
+	//
+	// Advanced Comment detection : {{- /* ... */ -}}
+	//
+	if bytes.Compare(data[lastElement:], []byte("-")) == 0 {
+		isRigthTrimmed = true
+		data = data[:lastElement]	// Trim rigth '-'
+
+		lastElement = len(data) - 1
+		isOkay := lastElement > 0
+
+		if isOkay && bytes.ContainsAny(data[lastElement:], " \r\n\t\f\v") {
+			isOkay = lastElement > 1
+			if isOkay && bytes.Compare(data[lastElement - 1:lastElement], []byte("/")) == 0 {
+				isRigthCommentAllowed = true
+			}
+		} else {
+			pos.Start.Character = pos.Start.Character - 1
+
+			err = &LexerError{
+				Err: errors.New("'-' left operator cannot be next to non-white-space"),
+				Range: pos,
+				Token: &Token{Value: []byte(".-"), ID: SPACE_EATER, Range: pos},
+			}
+		}
+	}
+
+	if bytes.Compare(data[:1], []byte("-")) == 0 {
+		isLeftTrimmed = true
+		data = data[1:]	// Trim left '-'
+
+		isOkay := len(data) > 0
+
+		if isOkay && bytes.ContainsAny(data[:1], " \r\n\t\f\v") {
+			isOkay = len(data) > 1
+			if isOkay && bytes.Compare(data[1:2], []byte("/")) == 0 {
+				isLeftCommentAllowed = true
+			}
+		} else {
+			pos.End.Character = pos.Start.Character + 2
+
+			err = &LexerError{
+				Err: errors.New("'-' rigth operator cannot be next to non-white-space"),
+				Range: pos,
+				Token: &Token{Value: []byte("-."), ID: SPACE_EATER, Range: pos},
+			}
+		}
+	}
+
+	isCommentAllowed := isLeftCommentAllowed && isRigthCommentAllowed
+	isTrimmed := [2]bool{ isLeftTrimmed, isRigthTrimmed }
+
+	return data, isCommentAllowed, isTrimmed, err
+}
+
+type PatternToken struct {
+	Value	string
+	ID	Kind
+	CanBeRightAfterToken bool
+}
+
+type Tokenizer struct {
+	PatternToIgnore	string
+	PatternToRecognize	[]PatternToken
+	Tokens	[]Token
+	Errs	[]LexerError
+}
+
+func (t *Tokenizer) appendToken(id Kind, pos Range, val []byte) {
+	to := Token {
+		ID: id,
+		Range: pos,
+		Value: val,
+	}
+
+	t.Tokens = append(t.Tokens, to)
+}
+
+func (t Tokenizer) getLastInsertedToken() *Token {
+	if len(t.Tokens) == 0 {
+		return nil
+	}
+
+	return &t.Tokens[len(t.Tokens) - 1]
+}
+
+func (t *Tokenizer) appendError(err error, token *Token) {
+	if err == nil {
+		return
+	}
+
+	lexErr := LexerError{
+		Err: err,
+		Token: token,
+		Range: token.Range,
+	}
+
+	t.Errs = append(t.Errs, lexErr)
+}
+
+
+
+func createTokenizer() *Tokenizer {
+	// (tokenRecognizerPattern) Tokens' meaning: VariableName, ID (function ?), '==' '=' ':='
+	tokenPatterns := []PatternToken{
+		{
+			// Value: `"[^"]+"`,
+			Value: "if|else|end|range|break|continue|template|block|with",
+			ID: KEYWORD,
+		},
+		{
+			// Value: `"[^"]+"`,
+			Value: `"(?:[^"\n\\]|\\.)+"`,
+			ID: STRING,
+		},
+		{
+			Value: `[$]\w+(?:[.]\w+)*`,
+			ID: NUMBER,
+		},
+		{
+			Value: `[$]\w+(?:[.][a-zA-Z_]\w*)*`,
+			ID: DOLLAR_VARIABLE,
+		},
+		{
+			// TODO: Check that this new code is correct
+			// Value: `[.]\w+(?:[.]\w+)*`,
+			Value: `[.][a-zA-Z_]\w*(?:[.][a-zA-Z_]\w*)*`,
+			ID: DOT_VARIABLE,
+		},
+		{
+			Value: `\w+`,
+			ID: FUNCTION,
+		},
+		{
+			Value: "==",
+			ID: EQUAL_COMPARISON,
+			CanBeRightAfterToken: true,
+		},
+		{
+			Value: "=",
+			ID: ASSIGNEMENT,
+			CanBeRightAfterToken: true,
+		},
+		{
+			Value: ":=",
+			ID: ASSIGNEMENT_DEFINITION,
+			CanBeRightAfterToken: true,
+		},
+		{
+			Value: "[|]",
+			ID: PIPE,
+			CanBeRightAfterToken: true,
+		},
+		{
+			Value: `\(`,
+			ID: LEFT_PAREN,
+			CanBeRightAfterToken: true,
+		},
+		{
+			Value: `\)`,
+			ID: RIGTH_PAREN,
+			CanBeRightAfterToken: true,
+		},
+		{
+			Value: `\/\*.*?(?:\*\/)`,
+			ID: COMMENT,
+		},
+	}
+
+	to := &Tokenizer{
+		PatternToIgnore: string(`\s+`),
+		PatternToRecognize: tokenPatterns ,
+		Tokens: nil,
+		Errs: nil,
+	}
+
+	return to
+}
 
