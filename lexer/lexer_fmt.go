@@ -11,7 +11,7 @@ func (r Range) String() string {
 }
 
 func (t Token) String() string {
-	return fmt.Sprintf("{ \"ID\": %d, \"Range\": %s, \"Value\": %q }", t.ID, t.Range, t.Value)
+	return fmt.Sprintf("{ \"ID\": \"%s\", \"Range\": %s, \"Value\": %q }", t.ID, t.Range, t.Value)
 }
 
 func (e LexerError) String() string {
@@ -35,4 +35,46 @@ func PrettyFormater[T fmt.Stringer](arr []T) string {
 	return str
 }
 
+func (k Kind) String() string {
+	str := ""
+
+	switch k {
+	case DOT_VARIABLE:
+		str = "DOT_VARIABLE"
+	case DOLLAR_VARIABLE:
+		str = "DOLLAR_VARIABLE"
+	case KEYWORD:
+		str = "KEYWORD"
+	case FUNCTION:
+		str = "FUNCTION"
+	case IDENTIFIER:
+		str = "IDENTIFIER"
+	case ASSIGNEMENT:
+		str = "ASSIGNEMENT"
+	case ASSIGNEMENT_DEFINITION:
+		str = "ASSIGNEMENT_DEFINITION"
+	case STRING:
+		str = "STRING"
+	case NUMBER:
+		str = "NUMBER"
+	case EQUAL_COMPARISON:
+		str = "EQUAL_COMPARISON"
+	case PIPE:
+		str = "PIPE"
+	case LEFT_PAREN:
+		str = "LEFT_PAREN"
+	case RIGTH_PAREN:
+		str = "RIGTH_PAREN"
+	case COMMENT:
+		str = "COMMENT"
+	case EOL:
+		str = "EOL"
+	case NOT_FOUND:
+		str = "NOT_FOUND"
+	case UNEXPECTED:
+		str = "UNEXPECTED"
+	}
+
+	return fmt.Sprintf(`%s`, str)
+}
 

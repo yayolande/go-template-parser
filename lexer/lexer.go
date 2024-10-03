@@ -42,6 +42,7 @@ const (
 	NUMBER
 	EQUAL_COMPARISON
 	PIPE
+	COMMA
 	LEFT_PAREN
 	RIGTH_PAREN
 	COMMENT
@@ -442,8 +443,7 @@ func createTokenizer() *Tokenizer {
 	// (tokenRecognizerPattern) Tokens' meaning: VariableName, ID (function ?), '==' '=' ':='
 	tokenPatterns := []PatternToken{
 		{
-			// Value: `"[^"]+"`,
-			Value: "if|else|end|range|break|continue|template|block|with",
+			Value: "if|else|end|range|define|template|block|with",
 			ID: KEYWORD,
 		},
 		{
@@ -452,17 +452,18 @@ func createTokenizer() *Tokenizer {
 			ID: STRING,
 		},
 		{
-			Value: `[$]\w+(?:[.]\w+)*`,
+			Value: `\d*[.]\d+|\d+`,
 			ID: NUMBER,
 		},
 		{
-			Value: `[$]\w+(?:[.][a-zA-Z_]\w*)*`,
+			Value: `[$]\w+(?:[.][a-zA-Z_]\w*)*|[$]`,
 			ID: DOLLAR_VARIABLE,
 		},
 		{
 			// TODO: Check that this new code is correct
 			// Value: `[.]\w+(?:[.]\w+)*`,
-			Value: `[.][a-zA-Z_]\w*(?:[.][a-zA-Z_]\w*)*`,
+			// Value: `[.][a-zA-Z_]?\w*(?:[.][a-zA-Z_]\w*)*`,
+			Value: `(?:[.][a-zA-Z_]\w*)+|[.]`,
 			ID: DOT_VARIABLE,
 		},
 		{
@@ -502,6 +503,10 @@ func createTokenizer() *Tokenizer {
 		{
 			Value: `\/\*.*?(?:\*\/)`,
 			ID: COMMENT,
+		},
+		{
+			Value: `,`,
+			ID: COMMA,
 		},
 	}
 
