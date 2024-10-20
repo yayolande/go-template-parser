@@ -34,6 +34,7 @@ const (
 	KIND_END
 )
 
+//go:generate go run ./generate.go
 type AstNode interface {
 	String()	string
 	getKind()	Kind
@@ -405,4 +406,3 @@ func (v *CommentNode) setKind(val Kind) {
 func (v CommentNode) definitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
 	return nil
 }
-
