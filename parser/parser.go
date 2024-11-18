@@ -65,7 +65,7 @@ func (a *SemanticAnalizer) definitionAnalysis() []ParseError {
 	localVariables := SymbolDefinition{}
 
 	root := a.rootAstNode
-	errs := root.definitionAnalysis(a.globalVariables, localVariables, a.builtinFunctionDefinition)
+	errs := root.DefinitionAnalysis(a.globalVariables, localVariables, a.builtinFunctionDefinition)
 	// fmt.Println(lexer.PrettyFormater(errs))
 
 	return errs
@@ -80,18 +80,22 @@ func SemanticalAnalisis(root AstNode) []ParseError {
 
 type Parser struct {
 	input	[]lexer.Token
-	openedNodeStack []AstNode
+	openedNodeStack []*GroupStatementNode
 	maxRecursionDepth	int
 	currentRecursionDepth	int
 }
 
 func createParser(tokens []lexer.Token) *Parser {
+	if tokens == nil {
+		panic("cannot create a parser containing empty tokens")
+	}
+
 	input := make([]lexer.Token, len(tokens))
 	copy(input, tokens)
 
 	defaultGroupStatementNode := &GroupStatementNode{Kind: KIND_GROUP_STATEMENT}
 
-	groupNodeStack := []AstNode{}
+	groupNodeStack := []*GroupStatementNode{}
 	groupNodeStack = append(groupNodeStack, defaultGroupStatementNode)
 
 	parser := &Parser{
@@ -104,107 +108,139 @@ func createParser(tokens []lexer.Token) *Parser {
 	return parser
 }
 
-func appendStatementWithinRecentGroup(node AstNode, nodes []AstNode) *ParseError {
-	var err *ParseError
-
-	size := len(nodes)
-	lastInserted, ok := nodes[size - 1].(*GroupStatementNode)
-
-	if ok {
-		lastInserted.Statements = append(lastInserted.Statements, node)
-	} else {
-		err = &ParseError{Err: errors.New("parser error, didn't find a statement holder, instead found something else")}
+func addStatementToCurrentScope(statement AstNode, scopeStack []*GroupStatementNode) {
+	if statement == nil {
+		panic("cannot add empty statement to 'group'")
 	}
 
-	return err
+	if scopeStack == nil {
+		panic("cannot add statement to empty group. Group must be created before hand")
+	}
+
+	currentScope := getLastElement(scopeStack)
+	// currentScope, ok := lastElement.(*GroupStatementNode)
+
+	/*
+	if !ok {
+		panic("only element of type 'GroupStatementNode' are accepted within 'groupNodeStack' slice")
+	}
+	*/
+
+	currentScope.Statements = append(currentScope.Statements, statement)
 }
 
 func (p *Parser) safeStatementGrouping(node AstNode) *ParseError {
-	var err *ParseError
-
 	// 1. Check for fatal error, where there is no default group assigned
-	if len(p.openedNodeStack) == 0 {
-		err = &ParseError{Err: errors.New("Parser error, no initial scope available to hold the statements")}
-		return err
+	if node == nil {
+		panic("statement to add in the scope cannot be nil")
 	}
 
+	// change var name to : "openedGroupNodeStack", "activeScopeNodes", "activeScopeStack"
+	if len(p.openedNodeStack) == 0 {
+		panic("no initial scope available to hold the statements. There must always exist at least one 'scope/group' at any moment")
+	}
+
+	// TODO: remove 'AstNode' in favor of '*GroupStatementNode'
+	var ROOT_SCOPE AstNode = p.openedNodeStack[0]
+
+	var err *ParseError
+
 	// 2. Decide what to do
-	switch node.getKind() {
-	case KIND_IF, KIND_WITH, KIND_RANGE_LOOP, KIND_BLOCK_TEMPLATE, KIND_DEFINE_TEMPLATE:
-		err = appendStatementWithinRecentGroup(node, p.openedNodeStack)
-		p.openedNodeStack = append(p.openedNodeStack, node)
-	case KIND_ELSE_IF:
-		// check that it is only after: if, else if
-		size := len(p.openedNodeStack)
-		if size > 1 {
-			lastInserted := p.openedNodeStack[size - 1]
-			lastInsertedKind := p.openedNodeStack[size - 1].getKind()
+	newGroup, isScope := node.(*GroupStatementNode)
 
-			if lastInsertedKind == KIND_IF || lastInsertedKind == KIND_ELSE_IF {
-				p.openedNodeStack = p.openedNodeStack[:size - 1]
-				err = appendStatementWithinRecentGroup(node, p.openedNodeStack)
-				p.openedNodeStack = append(p.openedNodeStack, node)
-			} else {
-				err = &ParseError{Range: *lastInserted.getRange(), 
-					Err: errors.New("'else if' statement is not compatible with '" + lastInsertedKind.String() + "'"), }
-			}
-		} else {
-			err = &ParseError{Range: *node.getRange(), 
-				Err: errors.New("extraneous statement '" + node.getKind().String() + "'")}
-		}
-	case KIND_ELSE_WITH:
-		// check that it is only after: with, else with
-		size := len(p.openedNodeStack)
-		if size > 1 {
-			lastInserted := p.openedNodeStack[size - 1]
-			lastInsertedKind := p.openedNodeStack[size - 1].getKind()
+	if !isScope {
+		addStatementToCurrentScope(node, p.openedNodeStack)
+	} else {
+		switch newGroup.GetKind() {
+		case KIND_IF, KIND_WITH, KIND_RANGE_LOOP, KIND_BLOCK_TEMPLATE, KIND_DEFINE_TEMPLATE:
+			addStatementToCurrentScope(newGroup, p.openedNodeStack)
+			p.openedNodeStack = append(p.openedNodeStack, newGroup)
 
-			if lastInsertedKind == KIND_WITH || lastInsertedKind == KIND_ELSE_WITH {
-				p.openedNodeStack = p.openedNodeStack[:size - 1]
-				err = appendStatementWithinRecentGroup(node, p.openedNodeStack)
-				p.openedNodeStack = append(p.openedNodeStack, node)
+		case KIND_ELSE_IF:
+			size := len(p.openedNodeStack)
+
+			if size > 1 {
+				lastInserted := p.openedNodeStack[size - 1]
+				lastInsertedKind := p.openedNodeStack[size - 1].GetKind()
+
+				if lastInsertedKind == KIND_IF || lastInsertedKind == KIND_ELSE_IF {
+					p.openedNodeStack = p.openedNodeStack[:size - 1]
+					addStatementToCurrentScope(newGroup, p.openedNodeStack)
+					p.openedNodeStack = append(p.openedNodeStack, newGroup)
+				} else {
+					err = &ParseError{Range: *lastInserted.GetRange(), 
+						Err: errors.New("'else if' statement is not compatible with '" + lastInsertedKind.String() + "'"), }
+				}
 			} else {
-				err = &ParseError{Range: *lastInserted.getRange(), 
-					Err: errors.New("'else with' statement is not compatible with '" + lastInsertedKind.String() + "'"), }
+				// TODO: missing 'token' field to include
+				err = &ParseError{Range: *newGroup.GetRange(), 
+					Err: errors.New("extraneous statement '" + newGroup.GetKind().String() + "'")}
 			}
-		} else {
-			err = &ParseError{Range: *node.getRange(), 
-				Err: errors.New("extraneous statement '" + node.getKind().String() + "'")}
-		}
-	case KIND_ELSE:
-		// check that it is only after: if, else if, with , else with, range
-		size := len(p.openedNodeStack)
-		if size > 1 {
-			lastInserted := p.openedNodeStack[size - 1]
-			switch lastInserted.getKind() {
-			case KIND_IF, KIND_ELSE_IF, KIND_WITH, KIND_ELSE_WITH, KIND_RANGE_LOOP:
+		case KIND_ELSE_WITH:
+			size := len(p.openedNodeStack)
+			if size > 1 {
+				lastInserted := p.openedNodeStack[size - 1]
+				lastInsertedKind := p.openedNodeStack[size - 1].GetKind()
+
+				if lastInsertedKind == KIND_WITH || lastInsertedKind == KIND_ELSE_WITH {
+					p.openedNodeStack = p.openedNodeStack[:size - 1]
+					addStatementToCurrentScope(newGroup, p.openedNodeStack)
+					p.openedNodeStack = append(p.openedNodeStack, newGroup)
+				} else {
+					err = &ParseError{Range: *lastInserted.GetRange(), 
+						Err: errors.New("'else with' statement is not compatible with '" + lastInsertedKind.String() + "'"), }
+				}
+			} else {
+				err = &ParseError{Range: *newGroup.GetRange(), 
+					Err: errors.New("extraneous statement '" + newGroup.GetKind().String() + "'")}
+			}
+		case KIND_ELSE:
+			size := len(p.openedNodeStack)
+			if size > 1 {
+				lastInserted := p.openedNodeStack[size - 1]
+				switch lastInserted.GetKind() {
+				case KIND_IF, KIND_ELSE_IF, KIND_WITH, KIND_ELSE_WITH, KIND_RANGE_LOOP:
+					p.openedNodeStack = p.openedNodeStack[:size - 1]
+					addStatementToCurrentScope(newGroup, p.openedNodeStack)
+					p.openedNodeStack = append(p.openedNodeStack, newGroup)
+				default:
+					err = &ParseError{Range: *newGroup.GetRange(), 
+						Err: errors.New("'else' statement is not compatible with '" + newGroup.GetKind().String() + "'")}
+				}
+			} else {
+				err = &ParseError{Range: *newGroup.GetRange(), 
+					Err: errors.New("extraneous statement '" + newGroup.GetKind().String() + "'")}
+			}
+		case KIND_END:
+			size := len(p.openedNodeStack)
+			if size > 1 {
 				p.openedNodeStack = p.openedNodeStack[:size - 1]
-				err = appendStatementWithinRecentGroup(node, p.openedNodeStack)
-				p.openedNodeStack = append(p.openedNodeStack, node)
-			default:
-				err = &ParseError{Range: *node.getRange(), 
-					Err: errors.New("'else' statement is not compatible with '" + node.getKind().String() + "'")}
+				addStatementToCurrentScope(newGroup, p.openedNodeStack)
+			} else {
+				err = &ParseError{Range: *newGroup.GetRange(), Err: errors.New("extraneous 'end' statement detected")}
 			}
-		} else {
-			err = &ParseError{Range: *node.getRange(), 
-				Err: errors.New("extraneous statement '" + node.getKind().String() + "'")}
+		default:
+			panic("'scope' type (" + newGroup.String() + ") is not yet handled for statement grouping")
 		}
-	case KIND_END:
-		size := len(p.openedNodeStack)
-		if size > 1 {
-			p.openedNodeStack = p.openedNodeStack[:size - 1]
-			err = appendStatementWithinRecentGroup(node, p.openedNodeStack)
-		} else {
-			err = &ParseError{Range: *node.getRange(), Err: errors.New("extraneous 'end' statement detected")}
-		}
-	default:
-		err = appendStatementWithinRecentGroup(node, p.openedNodeStack)
+	}
+
+
+	if len(p.openedNodeStack) == 0 {
+		panic("'openedNodeStack' cannot be empty ! you have inadvertly close the 'root scope'. You should not interact with it")
+	}
+
+	if ROOT_SCOPE != p.openedNodeStack[0] {
+		panic("error, the root scope have been modified. The root scope should never change under any circumstance")
 	}
 
 	return err
 }
 
-func Parse(tokens []lexer.Token) (AstNode, []ParseError) {
+func Parse(tokens []lexer.Token) (*GroupStatementNode, []ParseError) {
+	if tokens == nil {
+		panic("cannot parse empty tokens")
+	}
+
 	var errs []ParseError
 
 	parser := createParser(tokens)
@@ -215,7 +251,7 @@ func Parse(tokens []lexer.Token) (AstNode, []ParseError) {
 
 		if err != nil {
 			errs = append(errs, *err)
-			parser.nextStatement()
+			parser.flushInputUntilNextStatement()
 		} else {
 			err = parser.safeStatementGrouping(node)
 
@@ -227,22 +263,19 @@ func Parse(tokens []lexer.Token) (AstNode, []ParseError) {
 		}
 	}
 	
-	var defaultGroupStatementNode AstNode
-	if len(parser.openedNodeStack) == 1 {
-		defaultGroupStatementNode = parser.openedNodeStack[0]
-	} else if len(parser.openedNodeStack) > 1 {
-		lastInserted := parser.openedNodeStack[len(parser.openedNodeStack) - 1]
-		err := ParseError{Range: *lastInserted.getRange(), 
+	if len(parser.openedNodeStack) == 0 {
+		panic("fatal error while building the parse tree. Expected at least one scope/group but found nothing")
+	}
+
+	defaultGroupStatementNode := parser.openedNodeStack[0]
+	if len(parser.openedNodeStack) > 1 {
+		lastInserted := getLastElement(parser.openedNodeStack)
+		err := ParseError{Range: *lastInserted.GetRange(), 
 			Err: errors.New("not all group statements ('if/else/define/block/with') have been properly claused")}
 
 		errs = append(errs, err)
-	} else {
-		err := ParseError{Err: errors.New("parser fatal error, unable to build a parse tree")}
-		errs = append(errs, err)
 	}
 
-	fmt.Print("")
-	// fmt.Println(errs)
 	return defaultGroupStatementNode, errs
 }
 
@@ -300,11 +333,11 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 			expression, err := p.StatementParser()
 
 			if expression != nil {
-				switch expression.getKind() {
+				switch expression.GetKind() {
 				case KIND_VARIABLE_ASSIGNMENT, KIND_VARIABLE_DECLARATION, KIND_MULTI_EXPRESSION, KIND_EXPRESSION:
-					ifExpression.controlFlow = expression
+					ifExpression.ControlFlow = expression
 					ifExpression.Kind = KIND_IF
-					ifExpression.Range.End = expression.getRange().End
+					ifExpression.Range.End = expression.GetRange().End
 				default:
 					if err == nil {
 						err = createParseError(&lexer.Token{}, errors.New("'if' do not accept this kind of statement"))
@@ -330,14 +363,14 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 
 				// TODO: produce the accurate else group statement
 				if elseExpression != nil {
-					switch expr.getKind() {
+					switch expr.GetKind() {
 					case KIND_IF:
-						elseExpression.setKind(KIND_ELSE_IF)
+						elseExpression.SetKind(KIND_ELSE_IF)
 					case KIND_WITH:
-						elseExpression.setKind(KIND_ELSE_WITH)
+						elseExpression.SetKind(KIND_ELSE_WITH)
 					default:
 						err = createParseError(elseToken, errors.New("bad syntax for else statement"))
-						err.Range = *expr.getRange()
+						err.Range = *expr.GetRange()
 					}
 				}
 			}
@@ -364,7 +397,7 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 			if p.acceptAt(1, lexer.COMMA) {
 				var expr *VariableDeclarationNode
 				expr, err = p.doubleDeclarationAssignmentParser()
-				rangeExpression.controlFlow = expr
+				rangeExpression.ControlFlow = expr
 
 				if ! p.expect(lexer.EOL) && err == nil {
 					err = createParseError(token, errors.New("'range' statement have missing expression"))
@@ -374,13 +407,13 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 				expr, err = p.StatementParser()
 
 				if expr != nil {
-					switch expr.getKind() {
+					switch expr.GetKind() {
 					case KIND_VARIABLE_ASSIGNMENT, KIND_VARIABLE_DECLARATION, KIND_MULTI_EXPRESSION, KIND_EXPRESSION:
-						rangeExpression.controlFlow = expr
-						rangeExpression.Range.End = expr.getRange().End
+						rangeExpression.ControlFlow = expr
+						rangeExpression.Range.End = expr.GetRange().End
 					default:
 						err = createParseError(token, errors.New("'range' do not accept those type of expression"))
-						err.Range = *expr.getRange()
+						err.Range = *expr.GetRange()
 					}
 				}
 			}
@@ -396,13 +429,13 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 			expr, err := p.StatementParser()
 
 			if expr != nil {
-				switch expr.getKind() {
+				switch expr.GetKind() {
 				case KIND_VARIABLE_ASSIGNMENT, KIND_VARIABLE_DECLARATION, KIND_MULTI_EXPRESSION, KIND_EXPRESSION:
-					withExpression.controlFlow = expr
-					withExpression.Range.End = expr.getRange().End
+					withExpression.ControlFlow = expr
+					withExpression.Range.End = expr.GetRange().End
 				default:
 					err = createParseError(token, errors.New("'with' do not accept those type of expression"))
-					err.Range = *expr.getRange()
+					err.Range = *expr.GetRange()
 				}
 			}
 
@@ -416,8 +449,8 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 
 			var err *ParseError
 			if p.accept(lexer.STRING) {
-				templateExpression := &TemplateStatementNode{Kind: KIND_BLOCK_TEMPLATE, templateName: p.peek(), Range: p.peek().Range }
-				blockExpression.controlFlow = templateExpression
+				templateExpression := &TemplateStatementNode{Kind: KIND_BLOCK_TEMPLATE, TemplateName: p.peek(), Range: p.peek().Range }
+				blockExpression.ControlFlow = templateExpression
 				token := p.peek()
 
 				p.nextToken()
@@ -426,13 +459,13 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 				expr, err = p.StatementParser()
 
 				if expr != nil {
-					switch expr.getKind() {
+					switch expr.GetKind() {
 					case KIND_VARIABLE_ASSIGNMENT, KIND_VARIABLE_DECLARATION, KIND_MULTI_EXPRESSION, KIND_EXPRESSION:
 						templateExpression.expression = expr
-						templateExpression.Range.End = expr.getRange().End
+						templateExpression.Range.End = expr.GetRange().End
 					default:
 						err = createParseError(token, errors.New("'block' do not accept those type of expression"))
-						err.Range = *expr.getRange()
+						err.Range = *expr.GetRange()
 					}
 				}
 			} else {
@@ -448,8 +481,8 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 
 			var err *ParseError
 			if p.accept(lexer.STRING) {
-				templateExpression := &TemplateStatementNode{ Kind: KIND_DEFINE_TEMPLATE, templateName: p.peek(), Range: p.peek().Range }
-				defineExpression.controlFlow = templateExpression
+				templateExpression := &TemplateStatementNode{ Kind: KIND_DEFINE_TEMPLATE, TemplateName: p.peek(), Range: p.peek().Range }
+				defineExpression.ControlFlow = templateExpression
 				defineExpression.Range.End = templateExpression.Range.End
 
 				p.nextToken()
@@ -469,7 +502,7 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 
 			var err *ParseError
 			if p.accept(lexer.STRING) {
-				templateExpression.templateName = p.peek()
+				templateExpression.TemplateName = p.peek()
 				token := p.peek()
 				p.nextToken()
 
@@ -477,13 +510,13 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 				expr, err = p.StatementParser()
 
 				if expr != nil {
-					switch expr.getKind() {
+					switch expr.GetKind() {
 					case KIND_VARIABLE_ASSIGNMENT, KIND_VARIABLE_DECLARATION, KIND_MULTI_EXPRESSION, KIND_EXPRESSION:
 						templateExpression.expression = expr
-						templateExpression.Range.End = expr.getRange().End
+						templateExpression.Range.End = expr.GetRange().End
 					default:
 						err = createParseError(token, errors.New("'template' do not accept those type of expression"))
-						err.Range = *expr.getRange()
+						err.Range = *expr.GetRange()
 					}
 				}
 			} else {
@@ -668,7 +701,9 @@ func (p *Parser) nextToken() {
 	p.input = p.input[1:]
 }
 
-func (p *Parser) nextStatement() {
+// TODO: Rename to 'skipTillNextStatement()', 'flushInputUntilNextStatement()', 
+// 'skipUntilEOL()'
+func (p *Parser) flushInputUntilNextStatement() {
 	for index, el := range p.input {
 		if el.ID == lexer.EOL {
 			index++
@@ -736,4 +771,29 @@ func createParseError(token *lexer.Token, err error) *ParseError {
 	return e
 }
 
+func getLastElement[E any](arr []E) E {
+	size := len(arr)
+
+	if size <= 0 {
+		panic("cannot obtain the last element of an empty 'slice'")
+	}
+
+	return arr[size - 1]
+}
+
+func PrettyFormater[E any] (nodes []E) string {
+	str := ""
+
+	if len(nodes) == 0 {
+		str = "[]"
+	} else {
+		for _, node := range nodes {
+			str += fmt.Sprintf("%v, ", node)
+		}
+
+		str = "[" + str[:len(str) - 2] + "]"
+	}
+
+	return str
+}
 
