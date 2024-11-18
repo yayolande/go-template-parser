@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"go-template-parser/lexer"
+	"strings"
 )
 
 
@@ -48,10 +49,12 @@ func (k Kind) String() string {
 }
 
 func (e ParseError) String() string {
-	to := ""
-	err := ""
+	to := "\"\""
+	err := "\"\""
+
 	if e.Err != nil {
 		err = e.Err.Error()
+		err = strings.ReplaceAll(err, "\"", "'")
 	}
 	if e.Token != nil {
 		to = fmt.Sprint(*e.Token)
@@ -112,7 +115,7 @@ func (e ExpressionNode) String() string {
 func (t TemplateStatementNode) String() string {
 	templateName := `""`
 	expression := `""`
-	if t.templateName !=  nil { templateName = fmt.Sprint(t.templateName) }
+	if t.TemplateName !=  nil { templateName = fmt.Sprint(t.TemplateName) }
 	if t.expression != nil { expression = fmt.Sprint(t.expression) }
 
 	return fmt.Sprintf(`{"Kind": %s, "Range": %s, "templateName": %s, "expression": %s}`, t.Kind, t.Range, templateName, expression)
@@ -121,7 +124,7 @@ func (t TemplateStatementNode) String() string {
 func (g GroupStatementNode) String() string {
 
 	strControlFlow := "{}"
-	if g.controlFlow != nil { strControlFlow = fmt.Sprintf("%s", g.controlFlow) }
+	if g.ControlFlow != nil { strControlFlow = fmt.Sprintf("%s", g.ControlFlow) }
 	str :=  PrettyAstNodeFormater(g.Statements)
 
 	return fmt.Sprintf(`{"Kind": %s, "Range": %s, "controlFlow": %s, "Statements": %s}`, g.Kind, g.Range, strControlFlow, str)
@@ -149,5 +152,4 @@ func PrettyAstNodeFormater(nodes []AstNode) string {
 
 	return str
 }
-
 

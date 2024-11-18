@@ -37,10 +37,11 @@ const (
 //go:generate go run ./generate.go
 type AstNode interface {
 	String()	string
-	getKind()	Kind
-	getRange()	*lexer.Range
-	setKind(val Kind)
-	definitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError
+	GetKind()	Kind
+	GetRange()	*lexer.Range
+	SetKind(val Kind)
+	// TODO: refactor this, very updated
+	DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError
 	// typeAnalysis()
 }
 
@@ -51,24 +52,24 @@ type VariableDeclarationNode struct {
 	Value	*MultiExpressionNode	// of type expression
 }
 
-func (v VariableDeclarationNode) getKind() Kind {
+func (v VariableDeclarationNode) GetKind() Kind {
 	return v.Kind
 }
 
-func (v VariableDeclarationNode) getRange() *lexer.Range {
+func (v VariableDeclarationNode) GetRange() *lexer.Range {
 	return &v.Range
 }
 
-func (v *VariableDeclarationNode) setKind(val Kind) {
+func (v *VariableDeclarationNode) SetKind(val Kind) {
 	v.Kind = val
 }
 
-func (v VariableDeclarationNode) definitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v VariableDeclarationNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
 	var errs []ParseError
 
 	// 0. Check that 'expression' is valid
 	if v.Value != nil {
-		errLocal := v.Value.definitionAnalysis(globalVariables, localVariables, functionDefinitions)
+		errLocal := v.Value.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions)
 		errs = append(errs, errLocal...)
 	}
 
@@ -113,24 +114,24 @@ type VariableAssignationNode struct {
 	Value	*MultiExpressionNode	// of type expression
 }
 
-func (v VariableAssignationNode) getKind() Kind {
+func (v VariableAssignationNode) GetKind() Kind {
 	return v.Kind
 }
 
-func (v VariableAssignationNode) getRange() *lexer.Range {
+func (v VariableAssignationNode) GetRange() *lexer.Range {
 	return &v.Range
 }
 
-func (v *VariableAssignationNode) setKind(val Kind) {
+func (v *VariableAssignationNode) SetKind(val Kind) {
 	v.Kind = val
 }
 
-func (v VariableAssignationNode) definitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v VariableAssignationNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
 	var errs []ParseError
 
 	// 0. Check that 'expression' is valid
 	if v.Value != nil {
-		errLocal := v.Value.definitionAnalysis(globalVariables, localVariables, functionDefinitions)
+		errLocal := v.Value.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions)
 		errs = append(errs, errLocal...)
 	}
 
@@ -169,23 +170,23 @@ type MultiExpressionNode struct {
 	Expressions	[]ExpressionNode
 }
 
-func (m MultiExpressionNode) getKind() Kind {
+func (m MultiExpressionNode) GetKind() Kind {
 	return m.Kind
 }
 
-func (m MultiExpressionNode) getRange() *lexer.Range {
+func (m MultiExpressionNode) GetRange() *lexer.Range {
 	return &m.Range
 }
 
-func (m *MultiExpressionNode) setKind(val Kind) {
+func (m *MultiExpressionNode) SetKind(val Kind) {
 	m.Kind = val
 }
 
-func (v* MultiExpressionNode) definitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v* MultiExpressionNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
 	var errs, localErr []ParseError
 
 	for _, expression := range v.Expressions {
-		localErr = expression.definitionAnalysis(globalVariables, localVariables, functionDefinitions)
+		localErr = expression.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions)
 		errs = append(errs, localErr...)
 	}
 
@@ -201,22 +202,22 @@ type ExpressionNode struct {
 	isFunctionCall	bool
 }
 
-func (e ExpressionNode) getKind() Kind {
+func (e ExpressionNode) GetKind() Kind {
 	return e.Kind
 }
 
-func (e ExpressionNode) getRange() *lexer.Range {
+func (e ExpressionNode) GetRange() *lexer.Range {
 	return &e.Range
 }
 
-func (v *ExpressionNode) setKind(val Kind) {
+func (v *ExpressionNode) SetKind(val Kind) {
 	v.Kind = val
 }
 
 // TODO: 'ParseError.Range' is not properly implemented
-func (v ExpressionNode) definitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v ExpressionNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
 	// 1. Check FunctionName is legit (var or func)
-	// create local variable that will hold all variable and found found in this process ('definitionAnalysis')
+	// create local variable that will hold all variable and found found in this process ('DefinitionAnalysis')
 	// so that 'typeAnalysis' will use that instead
 	var errs []ParseError
 
@@ -234,7 +235,7 @@ func (v ExpressionNode) definitionAnalysis(globalVariables, localVariables, func
 	_, isLocalVariable := localVariables[name]
 	_, isGlobalVariable := globalVariables[name]
 
-	// Dot_variable cannot be checked on definitionAnalysis(), only on type checking analysis
+	// Dot_variable cannot be checked on DefinitionAnalysis(), only on type checking analysis
 	if isLocalVariable || isGlobalVariable || isDotVariable {
 		if len(v.Symbols) > 1 {
 			err := createParseError(&v.Symbols[0], errors.New("Variable cannot have arguments, only function. Remove the extraneous argument, or use a function instead"))
@@ -277,7 +278,7 @@ func (v ExpressionNode) definitionAnalysis(globalVariables, localVariables, func
 		_, isLocalVariable = localVariables[name]
 		_, isGlobalVariable = globalVariables[name]
 
-		// Dot_variable cannot be checked on definitionAnalysis(), only on type checking analysis
+		// Dot_variable cannot be checked on DefinitionAnalysis(), only on type checking analysis
 		if isLocalVariable || isGlobalVariable || isDotVariable {
 			continue
 		}
@@ -299,25 +300,25 @@ func (v ExpressionNode) definitionAnalysis(globalVariables, localVariables, func
 type TemplateStatementNode struct {
 	Kind
 	Range lexer.Range
-	templateName	*lexer.Token
+	TemplateName	*lexer.Token
 	expression	AstNode
 }
 
-func (t TemplateStatementNode) getKind() Kind {
+func (t TemplateStatementNode) GetKind() Kind {
 	return t.Kind
 }
 
-func (t *TemplateStatementNode) setKind(val Kind) {
+func (t *TemplateStatementNode) SetKind(val Kind) {
 	t.Kind = val
 }
 
-func (t TemplateStatementNode) getRange() *lexer.Range {
+func (t TemplateStatementNode) GetRange() *lexer.Range {
 	return &t.Range
 }
 
-func (v TemplateStatementNode) definitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v TemplateStatementNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
 	if v.expression != nil {
-		return  v.expression.definitionAnalysis(globalVariables, localVariables, functionDefinitions)
+		return  v.expression.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions)
 	}
 
 	// TODO: Do something about checking template name, if it is exist and what not
@@ -329,23 +330,23 @@ type GroupStatementNode struct {
 	Kind
 	Range	lexer.Range
 	// Name	*lexer.Token
-	controlFlow	AstNode
+	ControlFlow	AstNode
 	Statements	[]AstNode
 }
 
-func (g GroupStatementNode) getKind() Kind {
+func (g GroupStatementNode) GetKind() Kind {
 	return g.Kind
 }
 
-func (g GroupStatementNode) getRange() *lexer.Range {
+func (g GroupStatementNode) GetRange() *lexer.Range {
 	return &g.Range
 }
 
-func (g *GroupStatementNode) setKind(val Kind) {
+func (g *GroupStatementNode) SetKind(val Kind) {
 	g.Kind = val
 }
 
-func (v GroupStatementNode) definitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v GroupStatementNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
 	scopedGlobalVariables :=  SymbolDefinition{}
 	scopedLocalVariables := SymbolDefinition{}
 
@@ -353,13 +354,13 @@ func (v GroupStatementNode) definitionAnalysis(globalVariables, localVariables, 
 
 	var errs []ParseError = nil
 	var localErr []ParseError = nil
-	if v.controlFlow != nil {
+	if v.ControlFlow != nil {
 		tmpLocalVariables := SymbolDefinition{}
 		tmpGlobalVariables := SymbolDefinition{}
 		maps.Copy(tmpGlobalVariables, scopedGlobalVariables)
 		maps.Copy(tmpGlobalVariables, localVariables)
 
-		localErr = v.controlFlow.definitionAnalysis(tmpGlobalVariables, tmpLocalVariables, functionDefinitions)
+		localErr = v.ControlFlow.DefinitionAnalysis(tmpGlobalVariables, tmpLocalVariables, functionDefinitions)
 		errs = append(errs, localErr...)
 
 		maps.Copy(scopedLocalVariables, tmpLocalVariables)
@@ -370,15 +371,15 @@ func (v GroupStatementNode) definitionAnalysis(globalVariables, localVariables, 
 		// No modification
 	case KIND_RANGE_LOOP, KIND_WITH, KIND_ELSE_WITH:
 		// Modify only  '.'
-		scopedGlobalVariables["."] = v.controlFlow
+		scopedGlobalVariables["."] = v.ControlFlow
 	case KIND_DEFINE_TEMPLATE, KIND_BLOCK_TEMPLATE:
 		// Modify both '.' and '$'
-		scopedGlobalVariables["."] = v.controlFlow
-		scopedGlobalVariables["$"] = v.controlFlow
+		scopedGlobalVariables["."] = v.ControlFlow
+		scopedGlobalVariables["$"] = v.ControlFlow
 	}
 
 	for _, statement := range v.Statements {
-		localErr = statement.definitionAnalysis(scopedGlobalVariables, scopedLocalVariables, functionDefinitions)
+		localErr = statement.DefinitionAnalysis(scopedGlobalVariables, scopedLocalVariables, functionDefinitions)
 		errs = append(errs, localErr...)
 	}
 
@@ -391,18 +392,18 @@ type CommentNode struct {
 	Value	*lexer.Token
 }
 
-func (c CommentNode) getKind() Kind {
+func (c CommentNode) GetKind() Kind {
 	return c.Kind
 }
 
-func (c CommentNode) getRange() *lexer.Range {
+func (c CommentNode) GetRange() *lexer.Range {
 	return &c.Range
 }
 
-func (v *CommentNode) setKind(val Kind) {
+func (v *CommentNode) SetKind(val Kind) {
 	v.Kind = val
 }
 
-func (v CommentNode) definitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v CommentNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
 	return nil
 }
