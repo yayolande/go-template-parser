@@ -3,6 +3,7 @@ package lexer
 import (
 	"bytes"
 	"errors"
+	"log"
 	"regexp"
 )
 
@@ -54,9 +55,15 @@ const (
 )
 
 func Tokenize(content []byte) ([]Token, []Token, []LexerError) {
-	content = bytes.Clone(content)
+	if len(content) == 0 {
+		return nil, nil, nil
+	}
 
 	templateCodes, templatePositions := extractTemplateCode(content)
+
+	if templateCodes == nil {
+		return nil, nil, nil
+	}
 
 	var errs []LexerError
 	var tokens []Token
@@ -86,13 +93,24 @@ func Tokenize(content []byte) ([]Token, []Token, []LexerError) {
 }
 
 func extractTemplateCode (content []byte) ([][]byte, []Range) {
+	if len(content) == 0 {
+		return nil, nil
+	}
+
+	var ORIGINAL_CONTENT = content
+	var CLONED_CONTENT = bytes.Clone(content)
+	// content = bytes.Clone(content)
+	content = CLONED_CONTENT
+
 	var templateCode [][]byte
 	var templatePositions []Range
 	var insideTemplate []byte
 
 	captureLonelyTemplateDelimitator := regexp.MustCompile("{{|}}")
-	captureTemplateStatementOnly := regexp.MustCompile("(?:{{(?:[^{}]|[\n\r\t])*?}})")
+	// captureTemplateStatementOnly := regexp.MustCompile("(?:{{(?:[^{}]|[\n\r\t])*?}})")
+	captureTemplateStatementOnly := regexp.MustCompile("(?:{{(?:[^{}]|[^{}]{|[^{}]}|[^{}]{}|[^{}]}{|[\n\r\t])*?}})")
 
+	// TODO: line shouldn't start at '0' but '1' instead
 	currentLine := 0
 	currentColumn := 0
 
@@ -105,22 +123,51 @@ func extractTemplateCode (content []byte) ([][]byte, []Range) {
 
 		if loc == nil {
 			// Do some checking before break out of the loop
-			if loneLoc != nil {
-				templatePosition = convertRangeIndexToTextEditorPosition(content, loneLoc, currentLine, currentColumn)
+			// TODO: this has some nasty issue. What happend if there is still one or more remaining '{{' left ?
+			// Answer: those lone '{{' are not registered, which will biase the lexical analysis
+			// TODO: Remove comment above as this issue as been solved
+			for {
+				if loneLoc != nil {
+					templatePosition = convertRangeIndexToTextEditorPosition(content, loneLoc, currentLine, currentColumn)
 
-				templatePositions = append(templatePositions, templatePosition)
-				templateCode = append(templateCode, content[loneLoc[0]:loneLoc[1]])
+					templatePositions = append(templatePositions, templatePosition)
+					templateCode = append(templateCode, content[loneLoc[0]:loneLoc[1]])
+
+					currentLine = templatePosition.End.Line
+					currentColumn = templatePosition.End.Character + 1
+					content = content[loneLoc[1]:]
+
+					loneLoc = captureLonelyTemplateDelimitator.FindIndex(content)
+					continue
+				}
+
+				break
 			}
 
 			break
 		}
 
 		// A lone delimitator has been found in the wild, do something
-		if loneLoc[0] < loc[0] {
-			templatePosition = convertRangeIndexToTextEditorPosition(content, loneLoc, currentLine, currentColumn)
+		// TODO: this has some nasty issue. What happend if there is still one or more remaining '{{' left ?
+		// Answer: those lone '{{' are not registered, which will biase the lexical analysis
+		// TODO: Remove comment above as this issue as been solved
+		for {
+			if loneLoc[0] < loc[0] {
+				templatePosition = convertRangeIndexToTextEditorPosition(content, loneLoc, currentLine, currentColumn)
 
-			templatePositions = append(templatePositions, templatePosition)
-			templateCode = append(templateCode, content[loneLoc[0]:loneLoc[1]])
+				templatePositions = append(templatePositions, templatePosition)
+				templateCode = append(templateCode, content[loneLoc[0]:loneLoc[1]])
+
+				currentLine = templatePosition.End.Line
+				currentColumn = templatePosition.End.Character + 1
+				content = content[loneLoc[1]:]
+
+				loneLoc = captureLonelyTemplateDelimitator.FindIndex(content)
+				loc = captureTemplateStatementOnly.FindIndex(content)
+				continue
+			}
+
+			break
 		}
 
 		templatePosition = convertRangeIndexToTextEditorPosition(content, loc, currentLine, currentColumn)
@@ -138,6 +185,24 @@ func extractTemplateCode (content []byte) ([][]byte, []Range) {
 		templateCode = append(templateCode, insideTemplate)
 
 		content = content[loc[1]:]
+	}
+
+	// {{ {{ {{ {{ {{ hello }} }} }}
+	//	WARNING: This operation is too expensive ! Perhaps it should be changed
+	// {{ { hell cat }}
+	/*
+		jkdf "{{ |ddjfkdfj }}"
+{{dd}}
+"(?:{{(?:[^{}]|[\n\r\t])*?}})"
+(?:{{(?:(?:[^{}]|[\n\r\t])*?|(?:[^{}]|[^{}]{|[\n\r\t])*?)}})
+	// {{ { hell cat }}
+	// {{ {{ {{ {{ {{ hello }} }} }}
+steveen son {{ { necro { nello } beach }{ }}
+	*/
+	if bytes.Compare(ORIGINAL_CONTENT, CLONED_CONTENT) != 0 {
+		log.Printf("ORIGINAL_CONTENT = \n%q\n===================\ncontent = \n%q\n=============", ORIGINAL_CONTENT, CLONED_CONTENT)
+		panic("content of the file has changed during lexical analysis (extracting template)." +
+			"In a perfect world, it shouldn't change")
 	}
 
 	return templateCode, templatePositions
@@ -183,6 +248,9 @@ func convertRangeIndexToTextEditorPosition(editorContent []byte, rangeIndex []in
 }
 
 func tokenizeLine(data []byte, initialPosition Range) ([]Token, []LexerError)  {
+	if len(data) == 0 {
+		return nil, nil
+	}
 
 	tokenizer := createTokenizer()
 	data, isCommentAllowed, isTrimmed, err := handleExternalWhiteSpaceTrimmer(data, initialPosition) 

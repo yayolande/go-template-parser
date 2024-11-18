@@ -36,7 +36,7 @@ func PrettyFormater[T fmt.Stringer](arr []T) string {
 }
 
 func (k Kind) String() string {
-	str := ""
+	str := "NOT FOUND ID"
 
 	switch k {
 	case DOT_VARIABLE:
@@ -73,6 +73,11 @@ func (k Kind) String() string {
 		str = "NOT_FOUND"
 	case UNEXPECTED:
 		str = "UNEXPECTED"
+	case	COMMA:
+		str = "COMMA"
+	default:
+		str = fmt.Sprintf("stringer() for 'lexer.Kind' type have found an unpected value: %d", k)
+		panic(str)
 	}
 
 	return fmt.Sprintf(`%s`, str)
