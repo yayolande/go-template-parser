@@ -15,69 +15,6 @@ type ParseError struct {
 
 type SymbolDefinition map[string]AstNode
 
-type SemanticAnalizer struct {
-	rootAstNode	AstNode
-	builtinFunctionDefinition	SymbolDefinition
-	customFunctionDefinition	SymbolDefinition	// Not sure it is necessary
-	globalVariables	SymbolDefinition
-}
-
-func createSemanticAnalizer(rootNode AstNode) *SemanticAnalizer {
-	analizer := SemanticAnalizer{
-		rootAstNode: rootNode,
-		builtinFunctionDefinition: SymbolDefinition {
-			"and": nil,
-			"call": nil,
-			"html": nil,
-			"index": nil,
-			"slice": nil,
-			"js": nil,
-			"len": nil,
-			"not": nil,
-			"or": nil,
-			"print": nil,
-			"printf": nil,
-			"println": nil,
-			"urlquery": nil,
-			"eq": nil,
-			"ne": nil,
-			"lt": nil,
-			"le": nil,
-			"gt": nil,
-			"ge": nil,
-			"true": nil,	// Not sure about this
-			"false": nil,	// Not sure about this
-			"continue": nil,	// Not sure about this
-			"break": nil,	// Not sure about this
-		},
-		customFunctionDefinition: SymbolDefinition {
-		},	// ????????????????????????/
-		globalVariables: SymbolDefinition {
-			".": nil,
-			"$": nil,
-		},
-	}
-
-	return &analizer
-}
-
-func (a *SemanticAnalizer) definitionAnalysis() []ParseError {
-	localVariables := SymbolDefinition{}
-
-	root := a.rootAstNode
-	errs := root.DefinitionAnalysis(a.globalVariables, localVariables, a.builtinFunctionDefinition)
-	// fmt.Println(lexer.PrettyFormater(errs))
-
-	return errs
-}
-
-func SemanticalAnalisis(root AstNode) []ParseError {
-	analizer := createSemanticAnalizer(root)
-	errs := analizer.definitionAnalysis()
-
-	return errs
-}
-
 type Parser struct {
 	input	[]lexer.Token
 	openedNodeStack []*GroupStatementNode
@@ -450,6 +387,7 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 			var err *ParseError
 			if p.accept(lexer.STRING) {
 				templateExpression := &TemplateStatementNode{Kind: KIND_BLOCK_TEMPLATE, TemplateName: p.peek(), Range: p.peek().Range }
+				templateExpression.parent = blockExpression
 				blockExpression.ControlFlow = templateExpression
 				token := p.peek()
 
@@ -482,6 +420,7 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 			var err *ParseError
 			if p.accept(lexer.STRING) {
 				templateExpression := &TemplateStatementNode{ Kind: KIND_DEFINE_TEMPLATE, TemplateName: p.peek(), Range: p.peek().Range }
+				templateExpression.parent = defineExpression
 				defineExpression.ControlFlow = templateExpression
 				defineExpression.Range.End = templateExpression.Range.End
 
@@ -498,6 +437,7 @@ func (p *Parser) StatementParser() (AstNode, *ParseError) {
 
 		} else if bytes.Compare(tokenValue, []byte("template")) == 0 {
 			templateExpression := &TemplateStatementNode{Kind: KIND_USE_TEMPLATE, Range: p.peek().Range, }
+			templateExpression.parent = nil
 			p.nextToken()	// skip 'template' token
 
 			var err *ParseError

@@ -40,8 +40,7 @@ type AstNode interface {
 	GetKind()	Kind
 	GetRange()	*lexer.Range
 	SetKind(val Kind)
-	// TODO: refactor this, very updated
-	DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError
+	DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions SymbolDefinition) []ParseError
 	// typeAnalysis()
 }
 
@@ -64,25 +63,33 @@ func (v *VariableDeclarationNode) SetKind(val Kind) {
 	v.Kind = val
 }
 
-func (v VariableDeclarationNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v VariableDeclarationNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions SymbolDefinition) []ParseError {
+	if v.Kind != KIND_VARIABLE_DECLARATION {
+		panic("found value mismatch for 'VariableDeclarationNode.Kind' during DefinitionAnalysis()")
+	}
+
+	if localVariables == nil {
+		panic("'localVariables' shouldn't be empty for 'VariableDeclarationNode.DefinitionAnalysis()'")
+	}
+
 	var errs []ParseError
 
 	// 0. Check that 'expression' is valid
 	if v.Value != nil {
-		errLocal := v.Value.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions)
+		errLocal := v.Value.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions)
 		errs = append(errs, errLocal...)
 	}
 
-	// 1. Check that variable is not a sub-variable (property)
+	// 1. Check at least var is declared
 	if len(v.VariableNames) == 0 {
-		errLocal := ParseError{ Err: errors.New("unexpected error, somehow the variable name hasn't been defined"), Range: v.Range }
+		errLocal := ParseError{ Err: errors.New("unexpected error, somehow the variable name hasn't been given in the operation"), Range: v.Range }
 		errs = append(errs, errLocal)
 
 		return errs
 	}
 
+	// 2. Check existance of variable and process without error if 'var' is unique
 	for _, variable := range v.VariableNames {
-		// if bytes.ContainsAny(v.VariableName.Value, ".") {
 		if bytes.ContainsAny(variable.Value, ".") {
 			err := createParseError(&variable, 
 				errors.New("variable name cannot contains any special character such '.', ..."))
@@ -90,18 +97,10 @@ func (v VariableDeclarationNode) DefinitionAnalysis(globalVariables, localVariab
 			errs = append(errs, *err)
 		}
 
-		// 2. Check if variable is defined, if not define it
+		// 2. Insert definition into dictionary, since there is no error whether the variable is already declared or not
 		key := string(variable.Value)
-		_, isLocal := localVariables[key]
-
-		if isLocal {
-			err := createParseError(&variable, errors.New("variable already exists, can't redeclare it"))
-			errs = append(errs, *err)
-		} else {
-			localVariables[key] = AstNode(&v)
-		}
+		localVariables[key] = &v
 	}
-
 
 	return errs
 }
@@ -126,16 +125,24 @@ func (v *VariableAssignationNode) SetKind(val Kind) {
 	v.Kind = val
 }
 
-func (v VariableAssignationNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v VariableAssignationNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions SymbolDefinition) []ParseError {
+	if v.Kind != KIND_VARIABLE_ASSIGNMENT {
+		panic("found value mismatch for 'VariableAssignationNode.Kind' during DefinitionAnalysis()")
+	}
+
+	if globalVariables == nil || localVariables == nil {
+		panic("'localVariables' or 'globalVariables' shouldn't be empty for 'VariableAssignationNode.DefinitionAnalysis()'")
+	}
+
 	var errs []ParseError
 
 	// 0. Check that 'expression' is valid
 	if v.Value != nil {
-		errLocal := v.Value.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions)
+		errLocal := v.Value.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions)
 		errs = append(errs, errLocal...)
 	}
 
-	// 1. Check that variable is not a sub-variable (property)
+	// 1. Check at least var is declared
 	if v.VariableName == nil {
 		errLocal := ParseError{ Err: errors.New("unexpected error, somehow the variable name hasn't been defined"), Range: v.Range }
 		errs = append(errs, errLocal)
@@ -145,7 +152,7 @@ func (v VariableAssignationNode) DefinitionAnalysis(globalVariables, localVariab
 
 	if bytes.ContainsAny(v.VariableName.Value, ".") {
 		err := createParseError(v.VariableName, 
-			errors.New("variable name cannot contains any special character such '.', ..."))
+			errors.New("variable name cannot contains any special character such '.' while assigning"))
 
 		errs = append(errs, *err)
 		return errs
@@ -156,10 +163,13 @@ func (v VariableAssignationNode) DefinitionAnalysis(globalVariables, localVariab
 	_, isLocal := localVariables[key]
 	_, isGlobal := globalVariables[key]
 
-	if ! isLocal && ! isGlobal {
+	if ! (isLocal || isGlobal) {
 		err := createParseError(v.VariableName, errors.New("variable do not exist, declare it first"))
 		errs = append(errs, *err)
+		return errs
 	}
+
+	localVariables[key] = &v
 
 	return errs
 }
@@ -182,11 +192,15 @@ func (m *MultiExpressionNode) SetKind(val Kind) {
 	m.Kind = val
 }
 
-func (v* MultiExpressionNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v* MultiExpressionNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions SymbolDefinition) []ParseError {
+	if v.Kind != KIND_MULTI_EXPRESSION {
+		panic("found value mismatch for 'MultiExpressionNode.Kind' during DefinitionAnalysis()")
+	}
+
 	var errs, localErr []ParseError
 
 	for _, expression := range v.Expressions {
-		localErr = expression.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions)
+		localErr = expression.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions)
 		errs = append(errs, localErr...)
 	}
 
@@ -215,7 +229,15 @@ func (v *ExpressionNode) SetKind(val Kind) {
 }
 
 // TODO: 'ParseError.Range' is not properly implemented
-func (v ExpressionNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v ExpressionNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions SymbolDefinition) []ParseError {
+	if v.Kind != KIND_EXPRESSION {
+		panic("found value mismatch for 'ExpressionNode.Kind' during DefinitionAnalysis()")
+	}
+
+	if globalVariables == nil || localVariables == nil || functionDefinitions == nil {
+		panic("'globalVariables' or 'localVariables' or 'functionDefinitions' shouldn't be empty for 'ExpressionNode.DefinitionAnalysis()'")
+	}
+
 	// 1. Check FunctionName is legit (var or func)
 	// create local variable that will hold all variable and found found in this process ('DefinitionAnalysis')
 	// so that 'typeAnalysis' will use that instead
@@ -231,14 +253,18 @@ func (v ExpressionNode) DefinitionAnalysis(globalVariables, localVariables, func
 
 	name := string(v.Symbols[0].Value)
 	id := v.Symbols[0].ID
+
 	isDotVariable := name[0] == '.'	
 	_, isLocalVariable := localVariables[name]
 	_, isGlobalVariable := globalVariables[name]
 
+	// TODO: What about 'method' ? a 'Dot_variable' can represent a method as well
+	// So there needs a way to handle that case
+
 	// Dot_variable cannot be checked on DefinitionAnalysis(), only on type checking analysis
 	if isLocalVariable || isGlobalVariable || isDotVariable {
 		if len(v.Symbols) > 1 {
-			err := createParseError(&v.Symbols[0], errors.New("Variable cannot have arguments, only function. Remove the extraneous argument, or use a function instead"))
+			err := createParseError(&v.Symbols[0], errors.New("variable cannot have arguments, only function. Remove the extraneous argument, or use a function instead"))
 			errs = append(errs, *err)
 			v.isError = true
 
@@ -257,7 +283,7 @@ func (v ExpressionNode) DefinitionAnalysis(globalVariables, localVariables, func
 
 		_, isFunction := functionDefinitions[name]
 		if !isFunction {
-			err := createParseError(&v.Symbols[0], errors.New("Cannot use a '" + id.String() + "' that hasn't been declared"))
+			err := createParseError(&v.Symbols[0], errors.New("Cannot use the function '" + id.String() + "' that hasn't been declared"))
 			errs = append(errs, *err)
 			v.isError = true
 			v.isFunctionCall = false
@@ -268,12 +294,14 @@ func (v ExpressionNode) DefinitionAnalysis(globalVariables, localVariables, func
 	isGlobalVariable = false
 	isLocalVariable = false
 	isFunction := false
+
 	for _, arg := range v.Symbols[1:] {
 		if arg.ID == lexer.STRING || arg.ID == lexer.NUMBER {
 			continue
 		}
 
 		name = string(arg.Value)
+
 		isDotVariable := name[0] == '.'	
 		_, isLocalVariable = localVariables[name]
 		_, isGlobalVariable = globalVariables[name]
@@ -302,6 +330,7 @@ type TemplateStatementNode struct {
 	Range lexer.Range
 	TemplateName	*lexer.Token
 	expression	AstNode
+	parent	*GroupStatementNode
 }
 
 func (t TemplateStatementNode) GetKind() Kind {
@@ -316,14 +345,45 @@ func (t TemplateStatementNode) GetRange() *lexer.Range {
 	return &t.Range
 }
 
-func (v TemplateStatementNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
-	if v.expression != nil {
-		return  v.expression.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions)
+func (v TemplateStatementNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions SymbolDefinition) []ParseError {
+	if templateDefinitions == nil {
+		panic(" 'templateDefinitions' shouldn't be empty for 'TemplateStatementNode.DefinitionAnalysis()'")
 	}
 
-	// TODO: Do something about checking template name, if it is exist and what not
+	var errs []ParseError
 
-	return nil
+	// 1. template name analysis
+	switch v.Kind {
+	case KIND_USE_TEMPLATE:
+		templateName := v.TemplateName.String()
+		_, ok := templateDefinitions[templateName]
+
+		if !ok {
+			err := createParseError(v.TemplateName, errors.New("cannot use an undefined template"))
+			errs = append(errs, *err)
+		}
+	case KIND_DEFINE_TEMPLATE, KIND_BLOCK_TEMPLATE:
+		templateName := v.TemplateName.String()
+		templateDefinitions[templateName] = v.parent
+
+		if v.parent == nil {
+			panic("'TemplateStatementNode' with unexpected empty parent node")
+		}
+
+		if v.parent.Kind != v.Kind {
+			panic("value mismatch. 'TemplateStatementNode.Kind' and 'TemplateStatementNode.parent.Kind' must similar")
+		}
+	default:
+		panic("'TemplateStatementNode' do not accept any other type than 'KIND_DEFINE_TEMPLATE, KIND_BLOCK_TEMPLATE, KIND_USE_TEMPLATE'")
+	}
+
+	// 2. Expression analysis, if any
+	if v.expression != nil {
+		localErr := v.expression.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions)
+		errs = append(errs, localErr...)
+	}
+
+	return errs
 }
 
 type GroupStatementNode struct {
@@ -346,40 +406,42 @@ func (g *GroupStatementNode) SetKind(val Kind) {
 	g.Kind = val
 }
 
-func (v GroupStatementNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v GroupStatementNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions SymbolDefinition) []ParseError {
+	if globalVariables == nil || localVariables == nil || functionDefinitions == nil || templateDefinitions == nil {
+		panic("arguments for 'DefinitionAnalysis()' shouldn't be 'nil' for 'GroupStatementNode'")
+	}
+
 	scopedGlobalVariables :=  SymbolDefinition{}
-	scopedLocalVariables := SymbolDefinition{}
 
 	maps.Copy(scopedGlobalVariables, globalVariables)
+	maps.Copy(scopedGlobalVariables, localVariables)
+	localVariables = SymbolDefinition{}
+
+	scopedTemplateDefinition := SymbolDefinition{}
+	maps.Copy(scopedTemplateDefinition, templateDefinitions)
 
 	var errs []ParseError = nil
 	var localErr []ParseError = nil
+
 	if v.ControlFlow != nil {
-		tmpLocalVariables := SymbolDefinition{}
-		tmpGlobalVariables := SymbolDefinition{}
-		maps.Copy(tmpGlobalVariables, scopedGlobalVariables)
-		maps.Copy(tmpGlobalVariables, localVariables)
-
-		localErr = v.ControlFlow.DefinitionAnalysis(tmpGlobalVariables, tmpLocalVariables, functionDefinitions)
+		localErr = v.ControlFlow.DefinitionAnalysis(scopedGlobalVariables, localVariables, functionDefinitions, scopedTemplateDefinition)
 		errs = append(errs, localErr...)
-
-		maps.Copy(scopedLocalVariables, tmpLocalVariables)
 	}
 
 	switch v.Kind {
-	case KIND_IF, KIND_ELSE, KIND_ELSE_IF:
-		// No modification
+	case KIND_IF, KIND_ELSE, KIND_ELSE_IF, KIND_GROUP_STATEMENT, KIND_END:
+		;
 	case KIND_RANGE_LOOP, KIND_WITH, KIND_ELSE_WITH:
-		// Modify only  '.'
 		scopedGlobalVariables["."] = v.ControlFlow
 	case KIND_DEFINE_TEMPLATE, KIND_BLOCK_TEMPLATE:
-		// Modify both '.' and '$'
 		scopedGlobalVariables["."] = v.ControlFlow
 		scopedGlobalVariables["$"] = v.ControlFlow
+	default:
+		panic("found unexpected 'Kind' for 'GroupStatementNode' during 'DefinitionAnalysis()'\n node = " + v.String())
 	}
 
 	for _, statement := range v.Statements {
-		localErr = statement.DefinitionAnalysis(scopedGlobalVariables, scopedLocalVariables, functionDefinitions)
+		localErr = statement.DefinitionAnalysis(scopedGlobalVariables, localVariables, functionDefinitions, scopedTemplateDefinition)
 		errs = append(errs, localErr...)
 	}
 
@@ -404,6 +466,10 @@ func (v *CommentNode) SetKind(val Kind) {
 	v.Kind = val
 }
 
-func (v CommentNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions SymbolDefinition) []ParseError {
+func (v CommentNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions SymbolDefinition) []ParseError {
+	if v.Kind != KIND_COMMENT {
+		panic("found value mismatch for 'CommentNode.Kind' during DefinitionAnalysis()")
+	}
+
 	return nil
 }

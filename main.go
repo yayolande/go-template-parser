@@ -107,8 +107,7 @@ func definitionAnalisisWithinWorkspace(parsedFilesInWorkspace map[string]*parser
 	// TODO: refactor this code to a function : definitionAnalisisWithinWorkspace(parsedFilesInWorkspace)
 	var cloneParsedFilesInWorkspace map[string]*parser.GroupStatementNode
 
-	var variableDefinition parser.SymbolDefinition
-	var functionDefinition parser.SymbolDefinition
+	var globalVariableDefinition, localVariableDefinition, functionDefinition parser.SymbolDefinition
 	var workspaceTemplateDefinition parser.SymbolDefinition
 
 	for longFileName, fileParseTree := range parsedFilesInWorkspace {
@@ -116,12 +115,14 @@ func definitionAnalisisWithinWorkspace(parsedFilesInWorkspace map[string]*parser
 		delete(cloneParsedFilesInWorkspace, longFileName)
 
 		workspaceTemplateDefinition = getWorkspaceTemplateDefinitionExcludingActiveFile(cloneParsedFilesInWorkspace)
-		variableDefinition = getBuiltinVariableDefinition()
+		globalVariableDefinition = getBuiltinVariableDefinition()
+		localVariableDefinition = parser.SymbolDefinition{}
 		functionDefinition = getBuiltinFunctionDefinition()
 
 		// TODO: put 'err' into a slice
-		err := fileParseTree.DefinitionAnalysis(variableDefinition, functionDefinition, workspaceTemplateDefinition)
-		_ = err
+		errs := fileParseTree.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition)
+		_ = errs
+		fmt.Println(parser.PrettyFormater(errs))
 	}
 
 	return nil
@@ -326,7 +327,7 @@ func main() {
 	// fmt.Println(rootNode)
 	// fmt.Println(parser.PrettyFormater(pErrs))
 
-	semanticErr := parser.SemanticalAnalisis(rootNode)
-	fmt.Println(lexer.PrettyFormater(semanticErr))
+	// semanticErr := parser.SemanticalAnalisis(rootNode)
+	// fmt.Println(lexer.PrettyFormater(semanticErr))
 }
 
