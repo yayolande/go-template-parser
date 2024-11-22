@@ -2,8 +2,8 @@ package parser
 
 import (
 	"fmt"
-	"go-template-parser/lexer"
 	"strings"
+	"github.com/yayolande/gota/lexer"
 )
 
 
@@ -151,5 +151,26 @@ func PrettyAstNodeFormater(nodes []AstNode) string {
 	}
 
 	return str
+}
+
+func PrettyFormater[E fmt.Stringer] (nodes []E) string {
+	str := ""
+
+	if len(nodes) == 0 {
+		str = "[]"
+	} else {
+		for _, node := range nodes {
+			str += fmt.Sprintf("%v, ", node)
+		}
+
+		str = "[" + str[:len(str) - 2] + "]"
+	}
+
+	return str
+}
+
+func Print(nodes ...AstNode) {
+	str := PrettyAstNodeFormater(nodes)
+	fmt.Println(str)
 }
 

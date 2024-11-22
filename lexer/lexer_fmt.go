@@ -18,7 +18,7 @@ func (e LexerError) String() string {
 	return fmt.Sprintf(`{ "Err": "%s", "Range": %s, "Token": %s }`, e.Err.Error(), e.Range, e.Token)
 }
 
-//func PrettyFormater(arr []fmt.Stringer) string {
+// TODO: change name of this function -- array_to_string() ?
 func PrettyFormater[T fmt.Stringer](arr []T) string {
 	if len(arr) == 0 {
 		return "[]"
@@ -33,6 +33,11 @@ func PrettyFormater[T fmt.Stringer](arr []T) string {
 	str += "]"
 
 	return str
+}
+
+func Print(tokens ...Token) {
+	str := PrettyFormater(tokens)
+	fmt.Println(str)
 }
 
 func (k Kind) String() string {

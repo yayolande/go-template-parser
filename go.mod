@@ -1,3 +1,3 @@
-module go-template-parser
+module github.com/yayolande/gota
 
-go 1.23.1
+go 1.23.3

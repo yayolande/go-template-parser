@@ -3,7 +3,7 @@ package parser
 import (
 	"bytes"
 	"errors"
-	"go-template-parser/lexer"
+	"github.com/yayolande/gota/lexer"
 	"maps"
 )
 

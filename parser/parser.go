@@ -3,8 +3,7 @@ package parser
 import (
 	"bytes"
 	"errors"
-	"fmt"
-	"go-template-parser/lexer"
+	"github.com/yayolande/gota/lexer"
 )
 
 type ParseError struct {
@@ -719,21 +718,5 @@ func getLastElement[E any](arr []E) E {
 	}
 
 	return arr[size - 1]
-}
-
-func PrettyFormater[E any] (nodes []E) string {
-	str := ""
-
-	if len(nodes) == 0 {
-		str = "[]"
-	} else {
-		for _, node := range nodes {
-			str += fmt.Sprintf("%v, ", node)
-		}
-
-		str = "[" + str[:len(str) - 2] + "]"
-	}
-
-	return str
 }
 

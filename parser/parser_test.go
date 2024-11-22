@@ -3,7 +3,6 @@ package parser
 import (
 	"strconv"
 	"testing"
-	// go-template-parser/lexer"
 )
 
 func TestSafeStatementGroupingDepth(t *testing.T) {
@@ -84,13 +83,13 @@ func TestSafeStatementGroupingDepth(t *testing.T) {
 	}
 
 	rootScope := &GroupStatementNode{Kind: KIND_GROUP_STATEMENT}
-	initGroup := append([]AstNode{}, AstNode(rootScope))
+	initGroup := append([]*GroupStatementNode{}, rootScope)
 
 	parser := Parser{
 		openedNodeStack: initGroup,
 	}
 
-	var backupStack []AstNode = make([]AstNode, len(parser.openedNodeStack))
+	var backupStack []*GroupStatementNode = make([]*GroupStatementNode, len(parser.openedNodeStack))
 	copy(backupStack, parser.openedNodeStack)
 
 	testName := ""
