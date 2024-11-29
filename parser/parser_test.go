@@ -3,11 +3,12 @@ package parser
 import (
 	"strconv"
 	"testing"
+	"github.com/yayolande/gota/types"
 )
 
 func TestSafeStatementGroupingDepth(t *testing.T) {
 	type input struct {
-		statement	AstNode
+		statement	types.AstNode
 	}
 
 	type want struct {
@@ -25,7 +26,7 @@ func TestSafeStatementGroupingDepth(t *testing.T) {
 		{
 			input: input{
 				// The type have no incidence on the grouping. Instead, everything is decided by 'statement.Kind'
-				statement: &GroupStatementNode{Kind: KIND_IF},	
+				statement: &GroupStatementNode{Kind: types.KIND_IF},	
 			},
 			want: want{
 				stackDepth: 2,
@@ -33,7 +34,7 @@ func TestSafeStatementGroupingDepth(t *testing.T) {
 		},
 		{
 			input: input{
-				statement: &GroupStatementNode{Kind: KIND_MULTI_EXPRESSION},
+				statement: &GroupStatementNode{Kind: types.KIND_MULTI_EXPRESSION},
 			},
 			want: want{
 				stackDepth: 2,
@@ -41,7 +42,7 @@ func TestSafeStatementGroupingDepth(t *testing.T) {
 		},
 		{
 			input: input{
-				statement: &GroupStatementNode{Kind: KIND_ELSE},
+				statement: &GroupStatementNode{Kind: types.KIND_ELSE},
 			},
 			want: want{
 				stackDepth: 2,
@@ -50,7 +51,7 @@ func TestSafeStatementGroupingDepth(t *testing.T) {
 		},
 		{
 			input: input{
-				statement: &GroupStatementNode{Kind: KIND_END},
+				statement: &GroupStatementNode{Kind: types.KIND_END},
 			},
 			want: want{
 				stackDepth: 1,
@@ -58,7 +59,7 @@ func TestSafeStatementGroupingDepth(t *testing.T) {
 		},
 		{
 			input: input{
-				statement: &GroupStatementNode{Kind: KIND_VARIABLE_ASSIGNMENT},
+				statement: &GroupStatementNode{Kind: types.KIND_VARIABLE_ASSIGNMENT},
 			},
 			want: want{
 				stackDepth: 1,
@@ -66,7 +67,7 @@ func TestSafeStatementGroupingDepth(t *testing.T) {
 		},
 		{
 			input: input{
-				statement: &GroupStatementNode{Kind: KIND_EXPRESSION},
+				statement: &GroupStatementNode{Kind: types.KIND_EXPRESSION},
 			},
 			want: want{
 				stackDepth: 1,
@@ -74,7 +75,7 @@ func TestSafeStatementGroupingDepth(t *testing.T) {
 		},
 		{
 			input: input{
-				statement: &GroupStatementNode{Kind: KIND_END},
+				statement: &GroupStatementNode{Kind: types.KIND_END},
 			},
 			want: want{
 				stackDepth: 1,
@@ -82,7 +83,7 @@ func TestSafeStatementGroupingDepth(t *testing.T) {
 		},
 	}
 
-	rootScope := &GroupStatementNode{Kind: KIND_GROUP_STATEMENT}
+	rootScope := &GroupStatementNode{Kind: types.KIND_GROUP_STATEMENT}
 	initGroup := append([]*GroupStatementNode{}, rootScope)
 
 	parser := Parser{
@@ -125,7 +126,7 @@ func TestSafeStatementGroupingDepth(t *testing.T) {
 			}
 
 			// Backup the current state, so as to compare it to the next state
-			backupStack = make([]AstNode, len(parser.openedNodeStack))
+			backupStack = make([]*GroupStatementNode, len(parser.openedNodeStack))
 			copy(backupStack, parser.openedNodeStack)
 
 		})

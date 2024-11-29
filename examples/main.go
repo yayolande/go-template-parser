@@ -38,7 +38,15 @@ func main() {
 
 	filesContentInWorkspace := gota.OpenProjectFiles(rootDir, fileExtension)
 	parsedFilesInWorkspace, _ := gota.ParseFilesInWorkspace(filesContentInWorkspace)
+
 	_ = gota.DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace)
+	for key, val := range parsedFilesInWorkspace {
+		_ = key
+		_ = val
+		fmt.Println("key = ", key)
+	}
+
+	return 
 
 	// TODO: error coming from 'parseFilesInWorkspace()' and 'definitionAnalisisWithinWorkspace()' 
 	// should be combine and then sent to the lsp user

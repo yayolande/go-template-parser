@@ -1,25 +1,24 @@
 package gota
 
 import (
-	"fmt"
-	"log"
-	"os"
-	"io"
-	"strings"
 	"bytes"
+	"fmt"
+	"io"
+	"log"
 	"maps"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/yayolande/gota/lexer"
 	"github.com/yayolande/gota/parser"
+	"github.com/yayolande/gota/types"
 )
+
+type Error = types.Error
 
 // Recursively open files from 'rootDir'
 func OpenProjectFiles(rootDir, withFileExtension string) map[string][]byte {
-	// TODO: Change the extension type later on
-	// targetExtension := ".html"
-	// targetExtension := ".go"
-
 	list, err := os.ReadDir(rootDir)
 	if err != nil {
 		panic("error while reading directory content: " + err.Error())
@@ -60,49 +59,36 @@ func OpenProjectFiles(rootDir, withFileExtension string) map[string][]byte {
 }
 
 // TODO: properly handly error return later on (intended for lsp user)
-func ParseFilesInWorkspace(workspaceFiles map[string][]byte) (map[string]*parser.GroupStatementNode, error) {
+func ParseFilesInWorkspace(workspaceFiles map[string][]byte) (map[string]*parser.GroupStatementNode, []Error) {
 	// 2. Parse the opened files --- parseFilesInWorkspace(workspace)
 	parsedFilesInWorkspace := make(map[string]*parser.GroupStatementNode)
 
+	var errs []Error
 	for longFileName, content := range workspaceFiles {
-		// TODO: change lexer.Tokenizer to unexported type
-		// TODO; name return type for 'lexer.Tokenize()' so that it is easier to read the meaning of the return vallues
 		tokens, failedTokens, tokenErr := lexer.Tokenize(content)
 
-		if tokenErr != nil {
-			// TODO: Do something in case of error, maybe sent it back to lsp user
-			// fmt.Println("errors while 'lexing' <--> ", longFileName)
-			// fmt.Println(lexer.PrettyFormater(failedTokens))
-			// log.Println("file containing erroneous go-template code: ", longFileName)
-			// fmt.Println()
-			_ = failedTokens
-		}
+		errs = append(errs, tokenErr...)
+		_ = failedTokens
 
 		if len(tokens) == 0 {
 			continue
 		}
 
 		parseTree, parseError := parser.Parse(tokens)
-		if parseError != nil {
-			// TODO: Return the error to user
-			// fmt.Println("errors while 'parsing' <--> ", longFileName)
-			// fmt.Println(parser.PrettyFormater(parseError))
-			// log.Println("file containing erroneous go-template code: ", longFileName)
-			// fmt.Println()safvis bali
-		}
 
 		parsedFilesInWorkspace[longFileName] = parseTree
+		errs = append(errs, parseError...)
 	}
 
 	if len(parsedFilesInWorkspace) == 0 {
 		return nil, nil
 	}
 
-	return parsedFilesInWorkspace, nil
+	return parsedFilesInWorkspace, errs
 }
 
 // TODO: change return type. it should accurate represent error data that the user can work with (lsp)
-func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace map[string]*parser.GroupStatementNode) error {
+func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace map[string]*parser.GroupStatementNode) []Error {
 	// 4. Definition Analysis (SemanticalAnalisis v1) (in all workspace files)
 	// TODO: refactor this code to a function : definitionAnalisisWithinWorkspace(parsedFilesInWorkspace)
 	var cloneParsedFilesInWorkspace map[string]*parser.GroupStatementNode
@@ -110,7 +96,10 @@ func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace map[string]*parser
 	var globalVariableDefinition, localVariableDefinition, functionDefinition parser.SymbolDefinition
 	var workspaceTemplateDefinition parser.SymbolDefinition
 
+	var errs []types.Error
+
 	for longFileName, fileParseTree := range parsedFilesInWorkspace {
+		// a. Get all the template definition of other project files except the current/active one
 		cloneParsedFilesInWorkspace = maps.Clone(parsedFilesInWorkspace)
 		delete(cloneParsedFilesInWorkspace, longFileName)
 
@@ -119,16 +108,16 @@ func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace map[string]*parser
 		localVariableDefinition = parser.SymbolDefinition{}
 		functionDefinition = getBuiltinFunctionDefinition()
 
+		// b. With the template definition, begin file definition analysis
 		// TODO: put 'err' into a slice
-		errs := fileParseTree.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition)
-		_ = errs
-		fmt.Println(parser.PrettyFormater(errs))
+		localErrs := fileParseTree.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition)
+		errs = append(errs, localErrs...)
 	}
 
-	return nil
+	return errs
 }
 
-func Print(node ...parser.AstNode) {
+func Print(node ...types.AstNode) {
 	str := parser.PrettyFormater(node)
 	fmt.Println(str)
 }
@@ -146,7 +135,7 @@ func getRootTemplateDefinition(root *parser.GroupStatementNode) parser.SymbolDef
 			panic("unexpected 'nil' statement found in scope holder (group) while listing template definition available in parent scope")
 		}
 
-		if statement.GetKind() != parser.KIND_DEFINE_TEMPLATE {
+		if statement.GetKind() != types.KIND_DEFINE_TEMPLATE {
 			continue
 		}
 

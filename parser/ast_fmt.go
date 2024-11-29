@@ -3,50 +3,11 @@ package parser
 import (
 	"fmt"
 	"strings"
-	"github.com/yayolande/gota/lexer"
+
+	"github.com/yayolande/gota/types"
 )
 
 
-func (k Kind) String() string {
-	val := "NOT FOUND!!!!!!!"
-
-	switch k {
-	case KIND_EXPRESSION:
-		val = "KIND_EXPRESSION"
-	case KIND_MULTI_EXPRESSION:
-		val = "KIND_MULTI_EXPRESSION"
-	case KIND_VARIABLE_ASSIGNMENT:
-		val = "KIND_VARIABLE_ASSIGNMENT"
-	case KIND_VARIABLE_DECLARATION:
-		val = "KIND_VARIABLE_DECLARATION"
-	case KIND_GROUP_STATEMENT:
-		val = "KIND_GROUP_STATEMENT"
-	case KIND_COMMENT:
-		val = "KIND_COMMENT"
-	case KIND_IF:
-		val = "KIND_IF"
-	case KIND_ELSE_IF:
-		val = "KIND_ELSE_IF"
-	case KIND_ELSE:
-		val = "KIND_ELSE"
-	case KIND_WITH:
-		val = "KIND_WITH"
-	case KIND_ELSE_WITH:
-		val = "KIND_ELSE_WITH"
-	case KIND_BLOCK_TEMPLATE:
-		val = "KIND_BLOCK_TEMPLATE"
-	case KIND_RANGE_LOOP:
-		val = "KIND_RANGE_LOOP"
-	case KIND_DEFINE_TEMPLATE:
-		val = "KIND_DEFINE_TEMPLATE"
-	case KIND_USE_TEMPLATE:
-		val = "KIND_USE_TEMPLATE"
-	case KIND_END:
-		val = "KIND_END"
-	}
-
-	return fmt.Sprintf(`"%s"`, val)
-}
 
 func (e ParseError) String() string {
 	to := "\"\""
@@ -66,7 +27,7 @@ func (e ParseError) String() string {
 func (v VariableDeclarationNode) String() string {
 	value := `""`
 	if v.Value != nil { value = fmt.Sprint(v.Value) }
-	str := lexer.PrettyFormater(v.VariableNames)
+	str := types.PrettyFormater(v.VariableNames)
 
 	return fmt.Sprintf(`{"Kind": %s, "Range": %s, "VariableNames": %s, "Value": %s}`, v.Kind, v.Range, str, value)
 }
@@ -137,7 +98,7 @@ func (c CommentNode) String() string {
 	return fmt.Sprintf(`{"Kind": %s, "Range": %s, "Value": %s}`, c.Kind, c.Range, value)
 }
 
-func PrettyAstNodeFormater(nodes []AstNode) string {
+func PrettyAstNodeFormater(nodes []types.AstNode) string {
 	str := ""
 
 	if len(nodes) == 0 {
@@ -161,6 +122,7 @@ func PrettyFormater[E fmt.Stringer] (nodes []E) string {
 	} else {
 		for _, node := range nodes {
 			str += fmt.Sprintf("%v, ", node)
+			// str += fmt.Sprintf("%#v, ", node)
 		}
 
 		str = "[" + str[:len(str) - 2] + "]"
@@ -169,7 +131,7 @@ func PrettyFormater[E fmt.Stringer] (nodes []E) string {
 	return str
 }
 
-func Print(nodes ...AstNode) {
+func Print(nodes ...types.AstNode) {
 	str := PrettyAstNodeFormater(nodes)
 	fmt.Println(str)
 }
