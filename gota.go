@@ -58,6 +58,38 @@ func OpenProjectFiles(rootDir, withFileExtension string) map[string][]byte {
 	return fileNamesToContent
 }
 
+func ParseSingleFile(source []byte) (*parser.GroupStatementNode, []Error) {
+	tokens, _, tokenErrs := lexer.Tokenize(source)
+	parseTree, parseErrs := parser.Parse(tokens)
+
+	parseErrs = append(parseErrs, tokenErrs...)
+	return parseTree, parseErrs
+}
+
+func DefinitionAnalysisSingleFile(fileName string, parsedFilesInWorkspace map[string]*parser.GroupStatementNode) []Error {
+	if parsedFilesInWorkspace == nil {
+		panic("'parsedFilesInWorkspace' cannot be nil during definition analysis (single file)")
+	}
+
+	parseTreeActiveFile, ok := parsedFilesInWorkspace[fileName]
+	if !ok {
+		panic(fileName + " is outside the current workspace, cant compute definition analysis for that file." +
+			" to resolve the matter add that file to the workspace, or create a new workspace with that file int it")
+	}
+
+	clonedParsedFilesInWorkspace := maps.Clone(parsedFilesInWorkspace)
+	delete(clonedParsedFilesInWorkspace, fileName)
+
+	workspaceTemplateDefinition := getWorkspaceTemplateDefinition(clonedParsedFilesInWorkspace)
+	globalVariableDefinition := getBuiltinVariableDefinition()
+	localVariableDefinition := parser.SymbolDefinition{}
+	functionDefinition := getBuiltinFunctionDefinition()
+
+	errs := parseTreeActiveFile.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition)
+
+	return errs
+}
+
 // TODO: properly handly error return later on (intended for lsp user)
 func ParseFilesInWorkspace(workspaceFiles map[string][]byte) (map[string]*parser.GroupStatementNode, []Error) {
 	// 2. Parse the opened files --- parseFilesInWorkspace(workspace)
@@ -99,11 +131,13 @@ func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace map[string]*parser
 	var errs []types.Error
 
 	for longFileName, fileParseTree := range parsedFilesInWorkspace {
+		// All this is equivalent ot 'DefinitionAnalysisSingleFile(longFileName, parsedFilesInWorkspace)'
+
 		// a. Get all the template definition of other project files except the current/active one
 		cloneParsedFilesInWorkspace = maps.Clone(parsedFilesInWorkspace)
 		delete(cloneParsedFilesInWorkspace, longFileName)
 
-		workspaceTemplateDefinition = getWorkspaceTemplateDefinitionExcludingActiveFile(cloneParsedFilesInWorkspace)
+		workspaceTemplateDefinition = getWorkspaceTemplateDefinition(cloneParsedFilesInWorkspace)
 		globalVariableDefinition = getBuiltinVariableDefinition()
 		localVariableDefinition = parser.SymbolDefinition{}
 		functionDefinition = getBuiltinFunctionDefinition()
@@ -161,7 +195,7 @@ func getRootTemplateDefinition(root *parser.GroupStatementNode) parser.SymbolDef
 }
 
 // getGlobalTemplateDefinition(workspaceTemplateDefinitionExcludingActiveFile)
-func getWorkspaceTemplateDefinitionExcludingActiveFile(parsedFilesInWorkspace map[string]*parser.GroupStatementNode) parser.SymbolDefinition {
+func getWorkspaceTemplateDefinition(parsedFilesInWorkspace map[string]*parser.GroupStatementNode) parser.SymbolDefinition {
 	workspaceTemplateDefinition := make(parser.SymbolDefinition)
 
 	for _, parseTree := range parsedFilesInWorkspace {

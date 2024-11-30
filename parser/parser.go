@@ -186,7 +186,7 @@ func (p *Parser) safeStatementGrouping(node types.AstNode) *ParseError {
 
 func Parse(tokens []types.Token) (*GroupStatementNode, []types.Error) {
 	if tokens == nil {
-		panic("cannot parse empty tokens")
+		return nil, nil
 	}
 
 	var errs []types.Error
