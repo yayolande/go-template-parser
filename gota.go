@@ -17,6 +17,18 @@ import (
 
 type Error = types.Error
 
+func init() {
+	fileName := "log_gota.txt"
+	logFile, err := os.Create(fileName)
+	if err != nil {
+		panic("cannot create file to store the log session.\n filename = " + fileName + "error = " + err.Error())
+	}
+
+	log.SetOutput(logFile)
+	log.SetPrefix("\n" + strings.Repeat("=", 20) + "\n")
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+}
+
 // Recursively open files from 'rootDir'
 // TODO: put a limit on how deep the recursion can go (recommended MAX = 6)
 func OpenProjectFiles(rootDir, withFileExtension string) map[string][]byte {
@@ -104,12 +116,13 @@ func DefinitionAnalysisSingleFile(fileName string, parsedFilesInWorkspace map[st
 
 	parseTreeActiveFile, ok := parsedFilesInWorkspace[fileName]
 	if !ok {
+		log.Printf("fatal, fileName = %s\n parsedFilesInWorkspace = %s\n", fileName, parsedFilesInWorkspace)
 		panic(fileName + " is outside the current workspace, cant compute definition analysis for that file." +
-			" to resolve the matter add that file to the workspace, or create a new workspace with that file int it")
+			" to resolve the matter, add that file to the workspace, or create a new workspace with that file int it")
 	}
 
 	if parseTreeActiveFile == nil {
-		log.Printf("fatal, filename = %s \n parsedFilesInWorkspace = %#s", fileName, parsedFilesInWorkspace)
+		log.Printf("fatal, filename = %s \n parsedFilesInWorkspace = %s", fileName, parsedFilesInWorkspace)
 		panic("'nil' is not accept as a 'root ast' inside a workspace. this has been uncovered during 'definitionAnalisisWithinWorkspace()'")
 	}
 
@@ -143,7 +156,7 @@ func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace map[string]*parser
 
 	for longFileName, fileParseTree := range parsedFilesInWorkspace {
 		if fileParseTree == nil {
-			log.Printf("fata, fileName = %s \n parsedFilesInWorkspace = %#s\n", longFileName, parsedFilesInWorkspace)
+			log.Printf("fata, fileName = %s \n parsedFilesInWorkspace = %s\n", longFileName, parsedFilesInWorkspace)
 			panic("a 'root ast' node should never be nil. make sure to only insert non-nil ast node into the workspace. " + 
 				"error found at 'DefinitionAnalisisWithinWorkspace()' for fileName = " + longFileName)
 		}
