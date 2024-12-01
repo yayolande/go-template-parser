@@ -18,6 +18,7 @@ import (
 type Error = types.Error
 
 // Recursively open files from 'rootDir'
+// TODO: put a limit on how deep the recursion can go (recommended MAX = 6)
 func OpenProjectFiles(rootDir, withFileExtension string) map[string][]byte {
 	list, err := os.ReadDir(rootDir)
 	if err != nil {
@@ -51,8 +52,8 @@ func OpenProjectFiles(rootDir, withFileExtension string) map[string][]byte {
 		fileNamesToContent[fileName] = fileContent
 	}
 
-	if len(fileNamesToContent) == 0 {
-		return nil
+	if fileNamesToContent == nil {
+		panic("'OpenProjectFiles()' should never return a 'nil' file hierarchy. return an empty map instead")
 	}
 
 	return fileNamesToContent
@@ -64,30 +65,6 @@ func ParseSingleFile(source []byte) (*parser.GroupStatementNode, []Error) {
 
 	parseErrs = append(parseErrs, tokenErrs...)
 	return parseTree, parseErrs
-}
-
-func DefinitionAnalysisSingleFile(fileName string, parsedFilesInWorkspace map[string]*parser.GroupStatementNode) []Error {
-	if parsedFilesInWorkspace == nil {
-		panic("'parsedFilesInWorkspace' cannot be nil during definition analysis (single file)")
-	}
-
-	parseTreeActiveFile, ok := parsedFilesInWorkspace[fileName]
-	if !ok {
-		panic(fileName + " is outside the current workspace, cant compute definition analysis for that file." +
-			" to resolve the matter add that file to the workspace, or create a new workspace with that file int it")
-	}
-
-	clonedParsedFilesInWorkspace := maps.Clone(parsedFilesInWorkspace)
-	delete(clonedParsedFilesInWorkspace, fileName)
-
-	workspaceTemplateDefinition := getWorkspaceTemplateDefinition(clonedParsedFilesInWorkspace)
-	globalVariableDefinition := getBuiltinVariableDefinition()
-	localVariableDefinition := parser.SymbolDefinition{}
-	functionDefinition := getBuiltinFunctionDefinition()
-
-	errs := parseTreeActiveFile.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition)
-
-	return errs
 }
 
 // TODO: properly handly error return later on (intended for lsp user)
@@ -112,15 +89,49 @@ func ParseFilesInWorkspace(workspaceFiles map[string][]byte) (map[string]*parser
 		errs = append(errs, parseError...)
 	}
 
-	if len(parsedFilesInWorkspace) == 0 {
-		return nil, nil
+	if parsedFilesInWorkspace == nil {
+		panic("'ParseFilesInWorkspace()' should never return a 'nil' workspace. return an empty map instead")
 	}
 
 	return parsedFilesInWorkspace, errs
 }
 
+// TODO: disallow circular dependencies for 'template definition'
+func DefinitionAnalysisSingleFile(fileName string, parsedFilesInWorkspace map[string]*parser.GroupStatementNode) []Error {
+	if parsedFilesInWorkspace == nil {
+		panic("'parsedFilesInWorkspace' cannot be nil during definition analysis (single file)")
+	}
+
+	parseTreeActiveFile, ok := parsedFilesInWorkspace[fileName]
+	if !ok {
+		panic(fileName + " is outside the current workspace, cant compute definition analysis for that file." +
+			" to resolve the matter add that file to the workspace, or create a new workspace with that file int it")
+	}
+
+	if parseTreeActiveFile == nil {
+		log.Printf("fatal, filename = %s \n parsedFilesInWorkspace = %#s", fileName, parsedFilesInWorkspace)
+		panic("'nil' is not accept as a 'root ast' inside a workspace. this has been uncovered during 'definitionAnalisisWithinWorkspace()'")
+	}
+
+	clonedParsedFilesInWorkspace := maps.Clone(parsedFilesInWorkspace)
+	delete(clonedParsedFilesInWorkspace, fileName)
+
+	workspaceTemplateDefinition := getWorkspaceTemplateDefinition(clonedParsedFilesInWorkspace)
+	globalVariableDefinition := getBuiltinVariableDefinition()
+	localVariableDefinition := parser.SymbolDefinition{}
+	functionDefinition := getBuiltinFunctionDefinition()
+
+	errs := parseTreeActiveFile.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition)
+
+	return errs
+}
+
 // TODO: change return type. it should accurate represent error data that the user can work with (lsp)
 func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace map[string]*parser.GroupStatementNode) []Error {
+	if len(parsedFilesInWorkspace) == 0 {
+		return nil
+	}
+
 	// 4. Definition Analysis (SemanticalAnalisis v1) (in all workspace files)
 	// TODO: refactor this code to a function : definitionAnalisisWithinWorkspace(parsedFilesInWorkspace)
 	var cloneParsedFilesInWorkspace map[string]*parser.GroupStatementNode
@@ -131,6 +142,11 @@ func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace map[string]*parser
 	var errs []types.Error
 
 	for longFileName, fileParseTree := range parsedFilesInWorkspace {
+		if fileParseTree == nil {
+			log.Printf("fata, fileName = %s \n parsedFilesInWorkspace = %#s\n", longFileName, parsedFilesInWorkspace)
+			panic("a 'root ast' node should never be nil. make sure to only insert non-nil ast node into the workspace. " + 
+				"error found at 'DefinitionAnalisisWithinWorkspace()' for fileName = " + longFileName)
+		}
 		// All this is equivalent ot 'DefinitionAnalysisSingleFile(longFileName, parsedFilesInWorkspace)'
 
 		// a. Get all the template definition of other project files except the current/active one
