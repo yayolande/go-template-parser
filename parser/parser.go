@@ -3,34 +3,32 @@ package parser
 import (
 	"bytes"
 	"errors"
+
 	"github.com/yayolande/gota/types"
 )
 
-// TODO: change 'Range' to 'interval' or 'reach' ?
-// TODO: change this to a linked list ?
 type ParseError struct {
-	Err	error
-	Range	types.Range
-	Token	*types.Token
+	Err   error
+	Range types.Range
+	Token *types.Token
 }
 
 func (p ParseError) GetError() string {
-	// return "I am da best"
 	return p.Err.Error()
 }
 
-func (p ParseError) GetRange() *types.Range {
-	return &p.Range
+func (p ParseError) GetRange() types.Range {
+	return p.Range
 }
 
 // SymbolDefinition = map[string]types.AstNode
 type SymbolDefinition = types.SymbolDefinition
 
 type Parser struct {
-	input	[]types.Token
-	openedNodeStack []*GroupStatementNode
-	maxRecursionDepth	int
-	currentRecursionDepth	int
+	input                 []types.Token
+	openedNodeStack       []*GroupStatementNode
+	maxRecursionDepth     int
+	currentRecursionDepth int
 }
 
 func createParser(tokens []types.Token) *Parser {
@@ -47,16 +45,16 @@ func createParser(tokens []types.Token) *Parser {
 	groupNodeStack = append(groupNodeStack, defaultGroupStatementNode)
 
 	parser := &Parser{
-		input: input,
-		openedNodeStack: groupNodeStack,
-		maxRecursionDepth: 3,
+		input:                 input,
+		openedNodeStack:       groupNodeStack,
+		maxRecursionDepth:     3,
 		currentRecursionDepth: 0,
 	}
 
 	return parser
 }
 
-func addStatementToCurrentScope(statement types.AstNode, scopeStack []*GroupStatementNode) {
+func appendStatementToCurrentScope(scopeStack []*GroupStatementNode, statement types.AstNode) {
 	if statement == nil {
 		panic("cannot add empty statement to 'group'")
 	}
@@ -66,112 +64,101 @@ func addStatementToCurrentScope(statement types.AstNode, scopeStack []*GroupStat
 	}
 
 	currentScope := getLastElement(scopeStack)
-	// currentScope, ok := lastElement.(*GroupStatementNode)
-
-	/*
-	if !ok {
-		panic("only element of type 'GroupStatementNode' are accepted within 'groupNodeStack' slice")
-	}
-	*/
-
 	currentScope.Statements = append(currentScope.Statements, statement)
 }
 
 func (p *Parser) safeStatementGrouping(node types.AstNode) *ParseError {
-	// 1. Check for fatal error, where there is no default group assigned
 	if node == nil {
-		panic("statement to add in the scope cannot be nil")
+		return nil
 	}
 
-	// change var name to : "openedGroupNodeStack", "activeScopeNodes", "activeScopeStack"
+	// change var name to : "openedGroupNodeStack", "activeScopeNodes", "activeScopeStack", "openedScopeStack"
 	if len(p.openedNodeStack) == 0 {
 		panic("no initial scope available to hold the statements. There must always exist at least one 'scope/group' at any moment")
 	}
 
-	// TODO: remove 'types.AstNode' in favor of '*GroupStatementNode'
-	var ROOT_SCOPE types.AstNode = p.openedNodeStack[0]
-
 	var err *ParseError
+	var ROOT_SCOPE *GroupStatementNode = p.openedNodeStack[0]
 
-	// 2. Decide what to do
 	newGroup, isScope := node.(*GroupStatementNode)
 
 	if !isScope {
-		addStatementToCurrentScope(node, p.openedNodeStack)
+		appendStatementToCurrentScope(p.openedNodeStack, node)
 	} else {
 		switch newGroup.GetKind() {
 		case types.KIND_IF, types.KIND_WITH, types.KIND_RANGE_LOOP, types.KIND_BLOCK_TEMPLATE, types.KIND_DEFINE_TEMPLATE:
-			addStatementToCurrentScope(newGroup, p.openedNodeStack)
+			appendStatementToCurrentScope(p.openedNodeStack, newGroup)
 			p.openedNodeStack = append(p.openedNodeStack, newGroup)
 
 		case types.KIND_ELSE_IF:
 			size := len(p.openedNodeStack)
 
 			if size > 1 {
-				lastInserted := p.openedNodeStack[size - 1]
-				lastInsertedKind := p.openedNodeStack[size - 1].GetKind()
+				lastInserted := getLastElement(p.openedNodeStack)
+				lastInsertedKind := lastInserted.GetKind()
 
 				if lastInsertedKind == types.KIND_IF || lastInsertedKind == types.KIND_ELSE_IF {
-					p.openedNodeStack = p.openedNodeStack[:size - 1]
-					addStatementToCurrentScope(newGroup, p.openedNodeStack)
+					// Remove the last element from the stack and switch it with 'KIND_ELSE_IF' scope
+					p.openedNodeStack = p.openedNodeStack[:size-1]
+					appendStatementToCurrentScope(p.openedNodeStack, newGroup)
 					p.openedNodeStack = append(p.openedNodeStack, newGroup)
 				} else {
-					err = &ParseError{Range: *lastInserted.GetRange(), 
-						Err: errors.New("'else if' statement is not compatible with '" + lastInsertedKind.String() + "'"), }
+					err = &ParseError{Range: lastInserted.GetRange(),
+						Err: errors.New("'else if' statement is not compatible with '" + lastInsertedKind.String() + "'")}
 				}
 			} else {
-				// TODO: missing 'token' field to include
-				err = &ParseError{Range: *newGroup.GetRange(), 
+				err = &ParseError{Range: newGroup.GetRange(),
 					Err: errors.New("extraneous statement '" + newGroup.GetKind().String() + "'")}
 			}
 		case types.KIND_ELSE_WITH:
 			size := len(p.openedNodeStack)
 			if size > 1 {
-				lastInserted := p.openedNodeStack[size - 1]
-				lastInsertedKind := p.openedNodeStack[size - 1].GetKind()
+				lastInserted := getLastElement(p.openedNodeStack)
+				lastInsertedKind := lastInserted.GetKind()
 
 				if lastInsertedKind == types.KIND_WITH || lastInsertedKind == types.KIND_ELSE_WITH {
-					p.openedNodeStack = p.openedNodeStack[:size - 1]
-					addStatementToCurrentScope(newGroup, p.openedNodeStack)
+					// Remove the last element from the stack and switch it with 'KIND_ELSE_WITH' scope
+					p.openedNodeStack = p.openedNodeStack[:size-1]
+					appendStatementToCurrentScope(p.openedNodeStack, newGroup)
 					p.openedNodeStack = append(p.openedNodeStack, newGroup)
 				} else {
-					err = &ParseError{Range: *lastInserted.GetRange(), 
-						Err: errors.New("'else with' statement is not compatible with '" + lastInsertedKind.String() + "'"), }
+					err = &ParseError{Range: lastInserted.GetRange(),
+						Err: errors.New("'else with' statement is not compatible with '" + lastInsertedKind.String() + "'")}
 				}
 			} else {
-				err = &ParseError{Range: *newGroup.GetRange(), 
+				err = &ParseError{Range: newGroup.GetRange(),
 					Err: errors.New("extraneous statement '" + newGroup.GetKind().String() + "'")}
 			}
 		case types.KIND_ELSE:
 			size := len(p.openedNodeStack)
 			if size > 1 {
-				lastInserted := p.openedNodeStack[size - 1]
+				lastInserted := getLastElement(p.openedNodeStack)
 				switch lastInserted.GetKind() {
 				case types.KIND_IF, types.KIND_ELSE_IF, types.KIND_WITH, types.KIND_ELSE_WITH, types.KIND_RANGE_LOOP:
-					p.openedNodeStack = p.openedNodeStack[:size - 1]
-					addStatementToCurrentScope(newGroup, p.openedNodeStack)
+					// Remove the last element from the stack and switch it with 'KIND_ELSE' scope
+					p.openedNodeStack = p.openedNodeStack[:size-1]
+					appendStatementToCurrentScope(p.openedNodeStack, newGroup)
 					p.openedNodeStack = append(p.openedNodeStack, newGroup)
 				default:
-					err = &ParseError{Range: *newGroup.GetRange(), 
+					err = &ParseError{Range: newGroup.GetRange(),
 						Err: errors.New("'else' statement is not compatible with '" + newGroup.GetKind().String() + "'")}
 				}
 			} else {
-				err = &ParseError{Range: *newGroup.GetRange(), 
+				err = &ParseError{Range: newGroup.GetRange(),
 					Err: errors.New("extraneous statement '" + newGroup.GetKind().String() + "'")}
 			}
 		case types.KIND_END:
 			size := len(p.openedNodeStack)
 			if size > 1 {
-				p.openedNodeStack = p.openedNodeStack[:size - 1]
-				addStatementToCurrentScope(newGroup, p.openedNodeStack)
+				p.openedNodeStack = p.openedNodeStack[:size-1]
+				appendStatementToCurrentScope(p.openedNodeStack, newGroup)
 			} else {
-				err = &ParseError{Range: *newGroup.GetRange(), Err: errors.New("extraneous 'end' statement detected")}
+				err = &ParseError{Range: newGroup.GetRange(), Err: errors.New("extraneous 'end' statement detected")}
 			}
 		default:
-			panic("'scope' type (" + newGroup.String() + ") is not yet handled for statement grouping")
+			panic("scope type '" + newGroup.String() + "' is not yet handled for statement grouping\n" + newGroup.String())
 		}
 	}
-
 
 	if len(p.openedNodeStack) == 0 {
 		panic("'openedNodeStack' cannot be empty ! you have inadvertly close the 'root scope'. You should not interact with it")
@@ -184,41 +171,42 @@ func (p *Parser) safeStatementGrouping(node types.AstNode) *ParseError {
 	return err
 }
 
+// Parse tokens into AST and return syntax errors found during the process
 func Parse(tokens []types.Token) (*GroupStatementNode, []types.Error) {
 	if tokens == nil {
 		return nil, nil
 	}
 
-	var errs []types.Error
-
 	parser := createParser(tokens)
-	nodes := []types.AstNode{}
 
-	for ! parser.isEOF() {
-		node, err := parser.StatementParser()
+	var errs []types.Error
+	var err *ParseError
+	var node types.AstNode
+
+	for !parser.isEOF() {
+		node, err = parser.StatementParser()
 
 		if err != nil {
-			errs = append(errs, *err)
+			errs = append(errs, err)
 			parser.flushInputUntilNextStatement()
 		} else {
 			err = parser.safeStatementGrouping(node)
 
 			if err != nil {
-				errs = append(errs, *err)
-			} else {
-				nodes = append(nodes, node)
+				errs = append(errs, err)
 			}
 		}
 	}
-	
+
 	if len(parser.openedNodeStack) == 0 {
 		panic("fatal error while building the parse tree. Expected at least one scope/group but found nothing")
 	}
 
 	defaultGroupStatementNode := parser.openedNodeStack[0]
+
 	if len(parser.openedNodeStack) > 1 {
 		lastInserted := getLastElement(parser.openedNodeStack)
-		err := ParseError{Range: *lastInserted.GetRange(), 
+		err := ParseError{Range: lastInserted.GetRange(),
 			Err: errors.New("not all group statements ('if/else/define/block/with') have been properly claused")}
 
 		errs = append(errs, err)
@@ -227,411 +215,592 @@ func Parse(tokens []types.Token) (*GroupStatementNode, []types.Error) {
 	return defaultGroupStatementNode, errs
 }
 
-func (p *Parser) StatementParser() (types.AstNode, *ParseError) {
-	if (p.isRecursionMaxDepth()) {
-		err := NewParseError(p.peek(), errors.New("parser error, reached the max depth authorized"))
+// Parse statement form tokens. It is the function that does the real parsing work.
+// Whenever parsing fail, you must call 'flushInputUntilNextStatement()' method
+// to parse the next statement accurately or else you might be in for a nasty surprise.
+// NB: when an error occur, the returned 'ast' can be nil or not. Most of the time,
+// the ast will be partially constructed instead of being nil.
+// Thus always use the returned error value to deternime whether parsing completed succesfully.
+// NB: you should not call this function directly, unless you want to build a costum parsing procedure
+// instead it is recommened to use 'Parse()' for regular use cases
+func (p *Parser) StatementParser() (ast types.AstNode, er *ParseError) {
+	if len(p.input) == 0 {
+		return nil, nil
+	}
 
+	// 1. Escape infinite recursion
+	if p.isRecursionMaxDepth() {
+		err := NewParseError(p.peek(), errors.New("parser error, reached the max depth authorized"))
 		return nil, err
 	}
 
 	p.incRecursionDepth()
 	defer p.decRecursionDepth()
 
-	// ID := expression
-	if p.acceptAt(1, types.ASSIGNEMENT_DEFINITION) {
+	// 2. Helper variable mainly used to easily get end location of the instruction (token.Range.End)
+	lastTokenInInstruction := p.peekAtEndCurrentInstruction() // token before 'EOL'
+	if lastTokenInInstruction == nil {
+		panic("unexpected empty token found at end of the current instruction")
+	}
+
+	// 3. Syntax Parser for the Go Template language
+	if p.acceptAt(1, types.DECLARATION_ASSIGNEMENT) {
 		varDeclarationNode, err := p.declarationAssignmentParser()
 
-		if ! p.expect(types.EOL) {
-			err = NewParseError(p.peek(), 
-				errors.New("syntax for assignment delcaration did'nt end properly"))
+		if err != nil {
+			return varDeclarationNode, err // partial AST are meant for debugging
 		}
-		
-		return varDeclarationNode, err
+
+		if !p.expect(types.EOL) {
+			err = NewParseError(p.peek(), errors.New("syntax for assignment delcaration didn't end properly. extraneous expression"))
+			err.Range.End = lastTokenInInstruction.Range.End
+			return varDeclarationNode, err
+		}
+
+		return varDeclarationNode, nil
 
 	} else if p.acceptAt(1, types.ASSIGNEMENT) {
 		varInitialization, err := p.initializationAssignmentParser()
 
-		if ! p.expect(types.EOL) {
-			err = NewParseError(p.peek(), errors.New("syntax for assignment did'nt end properly"))
+		if err != nil {
+			return varInitialization, err // partial AST are meant for debugging
 		}
 
-		return varInitialization, err
-	
+		if !p.expect(types.EOL) {
+			err = NewParseError(p.peek(), errors.New("syntax for assignment didn't end properly. extraneous expression"))
+			err.Range.End = lastTokenInInstruction.Range.End
+			return varInitialization, err
+		}
+
+		return varInitialization, nil
+
 	} else if p.accept(types.COMMENT) {
-		commentExpression := &CommentNode{ Kind: types.KIND_COMMENT, Value: p.peek(), Range: p.peek().Range }
+		commentExpression := &CommentNode{Kind: types.KIND_COMMENT, Value: p.peek(), Range: p.peek().Range}
+
 		p.nextToken()
 
-		var err *ParseError
-		if ! p.expect(types.EOL) {
-			err = NewParseError(p.peek(), errors.New("syntax for comment did'nt end properly"))
+		if !p.expect(types.EOL) {
+			err := NewParseError(p.peek(), errors.New("syntax for comment didn't end properly. extraneous expression"))
+			err.Range.End = lastTokenInInstruction.Range.End
+			return commentExpression, err
 		}
 
-		return commentExpression, err
+		return commentExpression, nil
 
 	} else if p.accept(types.KEYWORD) {
-		// Order of implementation: if/else/else if, end, range, define, template, block, with
-		tokenValue := p.peek().Value
+		keywordToken := p.peek()
 
-		if bytes.Compare(tokenValue, []byte("if")) == 0 {
+		// INFO: most composite statements (else if xxx, etc) do not check for 'EOL' on purpose
+
+		if bytes.Compare(keywordToken.Value, []byte("if")) == 0 {
 			ifExpression := &GroupStatementNode{}
-			ifExpression.Range = p.peek().Range
+			ifExpression.Kind = types.KIND_IF
+			ifExpression.Range = keywordToken.Range
+			ifExpression.Range.End = lastTokenInInstruction.Range.End
 
-			p.nextToken()	// skip keyword "if"
+			p.nextToken() // skip keyword "if"
 
 			expression, err := p.StatementParser()
+			ifExpression.ControlFlow = expression
 
-			if expression != nil {
-				switch expression.GetKind() {
-				case types.KIND_VARIABLE_ASSIGNMENT, types.KIND_VARIABLE_DECLARATION, types.KIND_MULTI_EXPRESSION, types.KIND_EXPRESSION:
-					ifExpression.ControlFlow = expression
-					ifExpression.Kind = types.KIND_IF
-					ifExpression.Range.End = expression.GetRange().End
-				default:
-					if err == nil {
-						err = NewParseError(&types.Token{}, errors.New("'if' do not accept this kind of statement"))
-					}
-				}
+			if err != nil {
+				return ifExpression, err // partial AST are meant for debugging
 			}
 
-			return ifExpression, err
-
-		} else if bytes.Compare(tokenValue, []byte("else")) == 0 {
-			tmpEpression := &GroupStatementNode{Kind: types.KIND_ELSE, Range: p.peek().Range}
-			elseToken := p.peek()
-
-			p.nextToken()
-
-			var elseExpression types.AstNode = tmpEpression
-			var err *ParseError
-			if ! p.expect(types.EOL) {
-				var expr types.AstNode
-				expr, err = p.StatementParser()
-
-				elseExpression = expr
-
-				// TODO: produce the accurate else group statement
-				if elseExpression != nil {
-					switch expr.GetKind() {
-					case types.KIND_IF:
-						elseExpression.SetKind(types.KIND_ELSE_IF)
-					case types.KIND_WITH:
-						elseExpression.SetKind(types.KIND_ELSE_WITH)
-					default:
-						err = NewParseError(elseToken, errors.New("bad syntax for else statement"))
-						err.Range = *expr.GetRange()
-					}
-				}
+			if expression == nil { // because if err == nil, then expression != nil
+				panic("returned AST was nil although parsing completed succesfully. can't be added to ControlFlow\n" + ifExpression.String())
 			}
 
-			return elseExpression, err
-		} else if bytes.Compare(tokenValue, []byte("end")) == 0 {
-			endExpression := &GroupStatementNode{ Kind: types.KIND_END, Range: p.peek().Range, }
+			if ifExpression.Range.End != expression.GetRange().End {
+				panic("ending location mismatch between 'if' statement and its expression\n" + ifExpression.String())
+			}
 
-			p.nextToken()	// skip 'end' token
+			switch expression.GetKind() {
+			case types.KIND_VARIABLE_ASSIGNMENT, types.KIND_VARIABLE_DECLARATION, types.KIND_MULTI_EXPRESSION, types.KIND_EXPRESSION:
 
-			var err *ParseError
+			default:
+				err = NewParseError(&types.Token{}, errors.New("'if' do not accept this kind of statement"))
+				err.Range = expression.GetRange()
+				return ifExpression, err
+			}
+
+			return ifExpression, nil
+
+		} else if bytes.Compare(keywordToken.Value, []byte("else")) == 0 {
+			elseExpression := &GroupStatementNode{}
+			elseExpression.Kind = types.KIND_ELSE
+			elseExpression.Range = keywordToken.Range
+			elseExpression.Range.End = lastTokenInInstruction.Range.End
+
+			p.nextToken() // skip 'else' token
+
+			if p.expect(types.EOL) {
+				return elseExpression, nil
+			}
+
+			// past this, 'elseExpression' is not useful anymore, and will be replaced by 'elseCompositeExpression'
+			elseExpression = nil
+			elseCompositeExpression, err := p.StatementParser()
+
+			if err != nil {
+				return elseCompositeExpression, err // partial AST are meant for debugging
+			}
+
+			if elseCompositeExpression == nil { // because if err == nil, then expression != nil
+				panic("returned AST was nil although parsing completed succesfully. 'else ...' parse error")
+			}
+
+			if elseCompositeExpression.GetRange().End != lastTokenInInstruction.Range.End {
+				panic("ending location mismatch between 'else if/with/...' statement and its expression\n" + elseCompositeExpression.String())
+			}
+
+			switch elseCompositeExpression.GetKind() {
+			case types.KIND_IF:
+				elseCompositeExpression.SetKind(types.KIND_ELSE_IF)
+			case types.KIND_WITH:
+				elseCompositeExpression.SetKind(types.KIND_ELSE_WITH)
+			default:
+				err = NewParseError(keywordToken, errors.New("bad syntax for else statement"))
+				err.Range = elseCompositeExpression.GetRange()
+				return elseCompositeExpression, err
+			}
+
+			return elseCompositeExpression, nil
+
+		} else if bytes.Compare(keywordToken.Value, []byte("end")) == 0 {
+			endExpression := &GroupStatementNode{}
+			endExpression.Kind = types.KIND_END
+			endExpression.Range = keywordToken.Range
+			endExpression.Range.End = lastTokenInInstruction.Range.End
+
+			p.nextToken() // skip 'end' token
+
 			if !p.expect(types.EOL) {
-				err = NewParseError(p.peek() , errors.New("'end' do not accept further expression"))
+				err := NewParseError(keywordToken, errors.New("expression next to 'end' is diasallowed"))
+				err.Range.End = lastTokenInInstruction.Range.End
+				return endExpression, err
 			}
 
-			return endExpression, err
-		} else if bytes.Compare(tokenValue, []byte("range")) == 0 {
-			rangeExpression := &GroupStatementNode{Kind: types.KIND_RANGE_LOOP, Range: p.peek().Range}
-			token := p.peek()
+			return endExpression, nil
+
+		} else if bytes.Compare(keywordToken.Value, []byte("range")) == 0 {
+			rangeExpression := &GroupStatementNode{}
+			rangeExpression.Kind = types.KIND_RANGE_LOOP
+			rangeExpression.Range = keywordToken.Range
+			rangeExpression.Range.End = lastTokenInInstruction.Range.End
 
 			p.nextToken()
 
+			var expression types.AstNode
 			var err *ParseError
+
 			if p.acceptAt(1, types.COMMA) {
-				var expr *VariableDeclarationNode
-				expr, err = p.doubleDeclarationAssignmentParser()
-				rangeExpression.ControlFlow = expr
+				expression, err = p.doubleDeclarationAssignmentParser()
 
-				if ! p.expect(types.EOL) && err == nil {
-					err = NewParseError(token, errors.New("'range' statement have missing expression"))
+				if !p.expect(types.EOL) {
+					err = NewParseError(keywordToken, errors.New("'range' statement has extraneous expression"))
+					err.Range.End = lastTokenInInstruction.Range.End
+					return rangeExpression, err
 				}
 			} else {
-				var expr types.AstNode
-				expr, err = p.StatementParser()
-
-				if expr != nil {
-					switch expr.GetKind() {
-					case types.KIND_VARIABLE_ASSIGNMENT, types.KIND_VARIABLE_DECLARATION, types.KIND_MULTI_EXPRESSION, types.KIND_EXPRESSION:
-						rangeExpression.ControlFlow = expr
-						rangeExpression.Range.End = expr.GetRange().End
-					default:
-						err = NewParseError(token, errors.New("'range' do not accept those type of expression"))
-						err.Range = *expr.GetRange()
-					}
-				}
+				expression, err = p.StatementParser()
 			}
 
-			return rangeExpression, err
+			rangeExpression.ControlFlow = expression
 
-		} else if bytes.Compare(tokenValue, []byte("with")) == 0 {
-			withExpression := &GroupStatementNode{Kind: types.KIND_WITH, Range: p.peek().Range}
-			token := p.peek()
-
-			p.nextToken()	// skip 'with' token
-
-			expr, err := p.StatementParser()
-
-			if expr != nil {
-				switch expr.GetKind() {
-				case types.KIND_VARIABLE_ASSIGNMENT, types.KIND_VARIABLE_DECLARATION, types.KIND_MULTI_EXPRESSION, types.KIND_EXPRESSION:
-					withExpression.ControlFlow = expr
-					withExpression.Range.End = expr.GetRange().End
-				default:
-					err = NewParseError(token, errors.New("'with' do not accept those type of expression"))
-					err.Range = *expr.GetRange()
-				}
+			if err != nil {
+				return rangeExpression, err // partial AST are meant for debugging
 			}
 
-
-			return withExpression, err
-
-		} else if bytes.Compare(tokenValue, []byte("block")) == 0 {
-			blockExpression := &GroupStatementNode{ Kind: types.KIND_BLOCK_TEMPLATE, Range: p.peek().Range }
-
-			p.nextToken()	// skip 'block' token
-
-			var err *ParseError
-			if p.accept(types.STRING) {
-				templateExpression := &TemplateStatementNode{Kind: types.KIND_BLOCK_TEMPLATE, TemplateName: p.peek(), Range: p.peek().Range }
-				templateExpression.parent = blockExpression
-				blockExpression.ControlFlow = templateExpression
-				token := p.peek()
-
-				p.nextToken()
-
-				var expr types.AstNode
-				expr, err = p.StatementParser()
-
-				if expr != nil {
-					switch expr.GetKind() {
-					case types.KIND_VARIABLE_ASSIGNMENT, types.KIND_VARIABLE_DECLARATION, types.KIND_MULTI_EXPRESSION, types.KIND_EXPRESSION:
-						templateExpression.expression = expr
-						templateExpression.Range.End = expr.GetRange().End
-					default:
-						err = NewParseError(token, errors.New("'block' do not accept those type of expression"))
-						err.Range = *expr.GetRange()
-					}
-				}
-			} else {
-				err = NewParseError(p.peek(), errors.New("'block' expect a string next to it"))
+			if expression == nil { // because if err == nil, then expression != nil
+				panic("returned AST was nil although parsing completed succesfully. can't be added to ControlFlow\n" + rangeExpression.String())
 			}
 
-
-			return blockExpression, err
-		} else if bytes.Compare(tokenValue, []byte("define")) == 0 {
-			defineExpression := &GroupStatementNode{Kind: types.KIND_DEFINE_TEMPLATE, Range: p.peek().Range }
-
-			p.nextToken()	// skip 'define' token
-
-			var err *ParseError
-			if p.accept(types.STRING) {
-				templateExpression := &TemplateStatementNode{ Kind: types.KIND_DEFINE_TEMPLATE, TemplateName: p.peek(), Range: p.peek().Range }
-				templateExpression.parent = defineExpression
-				defineExpression.ControlFlow = templateExpression
-				defineExpression.Range.End = templateExpression.Range.End
-
-				p.nextToken()
-			} else {
-				err = NewParseError(p.peek(), errors.New("'define' expect a string next to it"))
+			if rangeExpression.Range.End != expression.GetRange().End {
+				panic("ending location mismatch between 'range' statement and its expression\n" + rangeExpression.String())
 			}
 
-			if ! p.expect(types.EOL) && err == nil {
-				err = NewParseError(p.peek(), errors.New("'define' do not accept any expression after its name"))
+			switch expression.GetKind() {
+			case types.KIND_VARIABLE_ASSIGNMENT, types.KIND_VARIABLE_DECLARATION, types.KIND_MULTI_EXPRESSION, types.KIND_EXPRESSION:
+
+			default:
+				err = NewParseError(lastTokenInInstruction, errors.New("'range' do not accept those type of expression"))
+				err.Range = expression.GetRange()
+				return rangeExpression, err
 			}
 
-			return defineExpression, err
+			return rangeExpression, nil
 
-		} else if bytes.Compare(tokenValue, []byte("template")) == 0 {
-			templateExpression := &TemplateStatementNode{Kind: types.KIND_USE_TEMPLATE, Range: p.peek().Range, }
+		} else if bytes.Compare(keywordToken.Value, []byte("with")) == 0 {
+			withExpression := &GroupStatementNode{}
+			withExpression.Kind = types.KIND_WITH
+			withExpression.Range = keywordToken.Range
+			withExpression.Range.End = lastTokenInInstruction.Range.End
+
+			p.nextToken() // skip 'with' token
+
+			expression, err := p.StatementParser()
+			withExpression.ControlFlow = expression
+
+			if err != nil {
+				return withExpression, err // partial AST are meant for debugging
+			}
+
+			if expression == nil { // because if err == nil, then expression != nil
+				panic("returned AST was nil although parsing completed succesfully. 'with ...' parse error")
+			}
+
+			if withExpression.Range.End != expression.GetRange().End {
+				panic("ending location mismatch between 'range' statement and its expression\n" + withExpression.String())
+			}
+
+			switch expression.GetKind() {
+			case types.KIND_VARIABLE_ASSIGNMENT, types.KIND_VARIABLE_DECLARATION, types.KIND_MULTI_EXPRESSION, types.KIND_EXPRESSION:
+
+			default:
+				err = NewParseError(lastTokenInInstruction, errors.New("'with' do not accept those type of expression"))
+				err.Range = expression.GetRange()
+				return withExpression, err
+			}
+
+			return withExpression, nil
+
+		} else if bytes.Compare(keywordToken.Value, []byte("block")) == 0 {
+			blockExpression := &GroupStatementNode{}
+			blockExpression.Kind = types.KIND_BLOCK_TEMPLATE
+			blockExpression.Range = keywordToken.Range
+			blockExpression.Range.End = lastTokenInInstruction.Range.End
+
+			p.nextToken() // skip 'block' token
+
+			if !p.accept(types.STRING) {
+				err := NewParseError(p.peek(), errors.New("'block' expect a string next to it"))
+				return blockExpression, err
+			}
+
+			templateExpression := &TemplateStatementNode{Kind: types.KIND_BLOCK_TEMPLATE, TemplateName: p.peek(), Range: p.peek().Range}
+			templateExpression.parent = blockExpression
+			blockExpression.ControlFlow = templateExpression
+
+			p.nextToken()
+
+			expression, err := p.StatementParser()
+			templateExpression.expression = expression
+
+			if err != nil {
+				return blockExpression, err // partial AST are meant for debugging
+			}
+
+			if expression == nil { // because if err == nil, then expression != nil
+				panic("returned AST was nil although parsing completed succesfully. can't add expression to ControlFlow\n" + blockExpression.String())
+			}
+
+			if blockExpression.Range.End != expression.GetRange().End {
+				panic("ending location mismatch between 'range' statement and its expression\n" + blockExpression.String())
+			}
+
+			switch expression.GetKind() {
+			case types.KIND_VARIABLE_ASSIGNMENT, types.KIND_VARIABLE_DECLARATION, types.KIND_MULTI_EXPRESSION, types.KIND_EXPRESSION:
+
+			default:
+				err = NewParseError(templateExpression.TemplateName, errors.New("'block' do not accept those type of expression"))
+				err.Range = expression.GetRange()
+				return blockExpression, err
+			}
+
+			return blockExpression, nil
+
+		} else if bytes.Compare(keywordToken.Value, []byte("define")) == 0 {
+			defineExpression := &GroupStatementNode{}
+			defineExpression.Kind = types.KIND_DEFINE_TEMPLATE
+			defineExpression.Range = keywordToken.Range
+			defineExpression.Range.End = lastTokenInInstruction.Range.End
+
+			p.nextToken() // skip 'define' token
+
+			if !p.accept(types.STRING) {
+				err := NewParseError(p.peek(), errors.New("'define' expect a string next to it"))
+				return defineExpression, err
+			}
+
+			templateExpression := &TemplateStatementNode{Kind: types.KIND_DEFINE_TEMPLATE, TemplateName: p.peek(), Range: p.peek().Range}
+			templateExpression.parent = defineExpression
+			defineExpression.ControlFlow = templateExpression
+
+			p.nextToken()
+
+			if !p.expect(types.EOL) {
+				err := NewParseError(p.peek(), errors.New("'define' do not accept any expression after its name"))
+				err.Range.End = lastTokenInInstruction.Range.End
+				return defineExpression, err
+			}
+
+			return defineExpression, nil
+
+		} else if bytes.Compare(keywordToken.Value, []byte("template")) == 0 {
+			templateExpression := &TemplateStatementNode{}
+			templateExpression.Kind = types.KIND_USE_TEMPLATE
+			templateExpression.Range = keywordToken.Range
+			templateExpression.Range.End = lastTokenInInstruction.Range.End
 			templateExpression.parent = nil
-			p.nextToken()	// skip 'template' token
 
-			var err *ParseError
-			if p.accept(types.STRING) {
-				templateExpression.TemplateName = p.peek()
-				token := p.peek()
-				p.nextToken()
+			p.nextToken() // skip 'template' tokens
 
-				var expr types.AstNode
-				expr, err = p.StatementParser()
-
-				if expr != nil {
-					switch expr.GetKind() {
-					case types.KIND_VARIABLE_ASSIGNMENT, types.KIND_VARIABLE_DECLARATION, types.KIND_MULTI_EXPRESSION, types.KIND_EXPRESSION:
-						templateExpression.expression = expr
-						templateExpression.Range.End = expr.GetRange().End
-					default:
-						err = NewParseError(token, errors.New("'template' do not accept those type of expression"))
-						err.Range = *expr.GetRange()
-					}
-				}
-			} else {
-				err = NewParseError(p.peek(), errors.New("'template' expect a string next to it"))
+			if !p.accept(types.STRING) {
+				err := NewParseError(p.peek(), errors.New("'template' expect a string next to it"))
+				return templateExpression, err
 			}
 
+			templateExpression.TemplateName = p.peek()
+			p.nextToken()
 
-			return templateExpression, err
+			expression, err := p.StatementParser()
+			templateExpression.expression = expression
 
+			if err != nil {
+				return templateExpression, err // partial AST are meant for debugging
+			}
+
+			if expression == nil { // because if err == nil, then expression != nil
+				panic("returned AST was nil although parsing completed succesfully. can't add expression to ControlFlow\n" + templateExpression.String())
+			}
+
+			if templateExpression.Range.End != expression.GetRange().End {
+				panic("ending location mismatch between 'range' statement and its expression\n" + templateExpression.String())
+			}
+
+			switch expression.GetKind() {
+			case types.KIND_VARIABLE_ASSIGNMENT, types.KIND_VARIABLE_DECLARATION, types.KIND_MULTI_EXPRESSION, types.KIND_EXPRESSION:
+
+			default:
+				err = NewParseError(templateExpression.TemplateName, errors.New("'template' do not accept those type of expression"))
+				err.Range = expression.GetRange()
+				return templateExpression, err
+			}
+
+			return templateExpression, nil
 		}
 	}
 
-	expression, err := p.multiExpressionParser()
+	// 4. Default parser whenever no other parser have been enabled
 
-	if ! p.expect(types.EOL) {
-		err = NewParseError(p.peek(), errors.New("syntax for expression did'nt end properly"))
+	multiExpression, err := p.multiExpressionParser()
+	if err != nil {
+		return multiExpression, err // partial AST are meant for debugging
 	}
 
-	return expression, err
+	if !p.expect(types.EOL) {
+		err = NewParseError(p.peek(), errors.New("expected end of expression, but got extraneous expression"))
+		err.Range.End = lastTokenInInstruction.Range.End
+		return multiExpression, err
+	}
+
+	return multiExpression, nil
 }
 
 func (p *Parser) declarationAssignmentParser() (*VariableDeclarationNode, *ParseError) {
-	var err *ParseError
-
-	if ! p.accept(types.DOLLAR_VARIABLE) {
-		err = NewParseError(p.peek(), 
-			errors.New("the variable name must start by '$' or only contains alphanumerical char"))
-
+	if !p.accept(types.DOLLAR_VARIABLE) {
+		err := NewParseError(p.peek(), errors.New("variable name must start by '$' and contains alphanumerical char"))
 		return nil, err
 	}
 
 	variable := p.peek()
 	p.nextToken()
 
-	if ! p.expect(types.ASSIGNEMENT_DEFINITION) {
-		err = NewParseError(p.peek(), errors.New("expected assignmement '=', but found something else"))
-
+	if !p.expect(types.DECLARATION_ASSIGNEMENT) {
+		err := NewParseError(p.peek(), errors.New("expected assignmement '=', but found something else"))
 		return nil, err
 	}
 
-	expression, err := p.multiExpressionParser()
-
-	varDeclarationNode := &VariableDeclarationNode {
-		Kind: types.KIND_VARIABLE_DECLARATION,
-		Value: expression,
-		Range: types.Range{ Start: variable.Range.Start, End: expression.Range.End },
+	lastTokenInInstruction := p.peekAtEndCurrentInstruction() // token before 'EOL'
+	if lastTokenInInstruction == nil {
+		panic("unexpected empty token found at end of the current instruction")
 	}
-	varDeclarationNode.VariableNames = append(varDeclarationNode.VariableNames, *variable)
 
-	return varDeclarationNode, err
+	varDeclarationNode := &VariableDeclarationNode{}
+	varDeclarationNode.Kind = types.KIND_VARIABLE_DECLARATION
+	varDeclarationNode.Range = variable.Range
+	varDeclarationNode.Range.End = lastTokenInInstruction.Range.End
+	varDeclarationNode.VariableNames = append(varDeclarationNode.VariableNames, variable)
+
+	expression, err := p.multiExpressionParser()
+	varDeclarationNode.Value = expression
+
+	if err != nil {
+		return varDeclarationNode, err // partial AST are meant for debugging
+	}
+
+	if expression == nil { // because if err == nil, then expression != nil
+		panic("returned AST was nil although parsing completed succesfully. can't be added to ControlFlow\n" + varDeclarationNode.String())
+	}
+
+	if varDeclarationNode.Range.End != expression.GetRange().End {
+		panic("ending location mismatch between 'if' statement and its expression\n" + varDeclarationNode.String())
+	}
+
+	return varDeclarationNode, nil
 }
 
 func (p *Parser) doubleDeclarationAssignmentParser() (*VariableDeclarationNode, *ParseError) {
-	var err *ParseError
-
-	if ! p.accept(types.DOLLAR_VARIABLE) {
-		err = NewParseError(p.peek(), errors.New("expected variable begining with '$' but got something else"))
+	if !p.accept(types.DOLLAR_VARIABLE) {
+		err := NewParseError(p.peek(), errors.New("expected variable begining with '$' but got something else"))
 		return nil, err
 	}
 
 	firstVariable := p.peek()
 	p.nextToken()
 
-	if ! p.expect(types.COMMA) {
-		err = NewParseError(p.peek(), errors.New("expected ',' to separate variable while declaring them"))
+	if !p.expect(types.COMMA) {
+		err := NewParseError(p.peek(), errors.New("expected ',' to separate variable while declaring them"))
 		return nil, err
 	}
 
 	varDeclarationNode, err := p.declarationAssignmentParser()
-	if len(varDeclarationNode.VariableNames) == 1 {
-		secondVariable := varDeclarationNode.VariableNames[0]
-		varDeclarationNode.VariableNames = nil
-
-		varDeclarationNode.VariableNames = append(varDeclarationNode.VariableNames, *firstVariable, secondVariable)
+	if err != nil {
+		return varDeclarationNode, err // partial AST are meant for debugging
 	}
 
-	return varDeclarationNode, err
+	if varDeclarationNode == nil { // because if err == nil, then expression != nil
+		panic("returned AST was nil although parsing completed succesfully. can't be added to ControlFlow\n" + varDeclarationNode.String())
+	}
+
+	if len(varDeclarationNode.VariableNames) != 1 {
+		err = NewParseError(firstVariable, errors.New("expected one variable after ',' but got something else"))
+		err.Range = varDeclarationNode.Range
+		return varDeclarationNode, err
+	}
+
+	secondVariable := varDeclarationNode.VariableNames[0]
+	varDeclarationNode.VariableNames = nil
+	varDeclarationNode.VariableNames = append(varDeclarationNode.VariableNames, firstVariable, secondVariable)
+	varDeclarationNode.Range.Start = firstVariable.Range.Start
+
+	return varDeclarationNode, nil
 }
 
 func (p *Parser) initializationAssignmentParser() (*VariableAssignationNode, *ParseError) {
-	var err *ParseError
-
-	if ! p.accept(types.DOLLAR_VARIABLE) {
-		err = NewParseError(p.peek(), 
-			errors.New("the variable name must start by '$' or '.', and only contains alphanumerical char"))
-
+	if !p.accept(types.DOLLAR_VARIABLE) {
+		err := NewParseError(p.peek(), errors.New("the variable name must start by '$' or '.', and only contains alphanumerical char"))
 		return nil, err
 	}
 
 	variable := p.peek()
 	p.nextToken()
 
-	if ! p.expect(types.ASSIGNEMENT) {
-		err = NewParseError(p.peek(), errors.New("expected assignmement '=', but found something else"))
-
+	if !p.expect(types.ASSIGNEMENT) {
+		err := NewParseError(p.peek(), errors.New("expected assignmement '=', but found something else"))
 		return nil, err
 	}
 
-	expression, err := p.multiExpressionParser()
-
-	varAssignation := VariableAssignationNode{
-		Kind: types.KIND_VARIABLE_ASSIGNMENT,
-		VariableName: variable,
-		Value: expression,
-		Range: types.Range{ Start: variable.Range.Start, End: expression.Range.End },
+	lastTokenInInstruction := p.peekAtEndCurrentInstruction() // token before 'EOL'
+	if lastTokenInInstruction == nil {
+		panic("unexpected empty token found at end of the current instruction")
 	}
 
-	return &varAssignation, err
+	varAssignation := &VariableAssignationNode{}
+	varAssignation.Kind = types.KIND_VARIABLE_ASSIGNMENT
+	varAssignation.VariableName = variable
+	varAssignation.Range = variable.Range
+	varAssignation.Range.End = lastTokenInInstruction.Range.End
+
+	expression, err := p.multiExpressionParser()
+	varAssignation.Value = expression
+	if err != nil {
+		return varAssignation, err // partial AST are meant for debugging
+	}
+
+	if varAssignation == nil { // because if err == nil, then expression != nil
+		panic("returned AST was nil although parsing completed succesfully. can't be added to ControlFlow\n" + varAssignation.String())
+	}
+
+	varAssignation.Range.End = expression.Range.End
+
+	return varAssignation, nil
 }
 
 func (p *Parser) multiExpressionParser() (*MultiExpressionNode, *ParseError) {
-	expression := &MultiExpressionNode{}
-	expression.Kind = types.KIND_MULTI_EXPRESSION
+	lastTokenInInstruction := p.peekAtEndCurrentInstruction() // token before 'EOL'
+	if lastTokenInInstruction == nil {
+		panic("unexpected empty token found at end of the current instruction")
+	}
 
-	expression.Range.Start = p.peek().Range.Start
+	multiExpression := &MultiExpressionNode{}
+	multiExpression.Kind = types.KIND_MULTI_EXPRESSION
+	multiExpression.Range.Start = p.peek().Range.Start
+	multiExpression.Range.End = lastTokenInInstruction.Range.End
 
-	expr, err := p.expressionParser()
-	expression.Expressions = append(expression.Expressions, *expr)
+	expression, err := p.expressionParser()
+	multiExpression.Expressions = append(multiExpression.Expressions, expression)
 
-	var errLocal *ParseError
+	if err != nil {
+		err.Range = lastTokenInInstruction.Range
+		err.Range.Start = lastTokenInInstruction.Range.End
+		err.Range.Start.Character--
+		return multiExpression, err
+	}
+
+	if expression == nil { // because if err == nil, then expression != nil
+		panic("returned AST was nil although parsing completed succesfully. can't be added to ControlFlow\n" + multiExpression.String())
+	}
+
 	for p.expect(types.PIPE) {
-		expr, errLocal = p.expressionParser()
-		expression.Expressions = append(expression.Expressions, *expr)
+		expression, err = p.expressionParser()
+		multiExpression.Expressions = append(multiExpression.Expressions, expression)
 
-		if err == nil {
-			err = errLocal
+		if err != nil {
+			err.Range = lastTokenInInstruction.Range
+			err.Range.Start = lastTokenInInstruction.Range.End
+			err.Range.Start.Character--
+			return multiExpression, err
+		}
+
+		if expression == nil { // because if err == nil, then expression != nil
+			panic("returned AST was nil although parsing completed succesfully. can't be added to ControlFlow\n" + multiExpression.String())
 		}
 	}
 
-	expression.Range.End = expr.Range.End
+	multiExpression.Range.End = expression.Range.End
 
-	return expression, err
+	return multiExpression, nil
 }
 
 func (p *Parser) expressionParser() (*ExpressionNode, *ParseError) {
+	lastTokenInInstruction := p.peekAtEndCurrentInstruction() // token before 'EOL'
+	if lastTokenInInstruction == nil {
+		panic("unexpected empty token found at end of the current instruction")
+	}
+
 	expression := &ExpressionNode{}
 	expression.Kind = types.KIND_EXPRESSION
-
 	expression.Range.Start = p.peek().Range.Start
+	expression.Range.Start = lastTokenInInstruction.Range.End
 
-	var symbolName *types.Token
+	var currentSymbol *types.Token
 	for p.accept(types.FUNCTION) || p.accept(types.DOT_VARIABLE) || p.accept(types.DOLLAR_VARIABLE) || p.accept(types.STRING) || p.accept(types.NUMBER) {
-		symbolName = p.peek()
+		currentSymbol = p.peek()
+		expression.Symbols = append(expression.Symbols, currentSymbol)
 
-		expression.Symbols = append(expression.Symbols, *symbolName)
 		p.nextToken()
 	}
 
-	var err *ParseError
-	if symbolName == nil {
-		err = NewParseError(p.peek(), 
-			errors.New("expected an expression but got '" + p.peek().ID.String() + "'"))
-			// errors.New("empty expression not allowed"))
+	if p.isEOF() {
+		panic("'expression' parser reached the end of instructions unexpectedly\n" + expression.String())
+	}
 
+	if currentSymbol == nil {
+		err := NewParseError(p.peek(), errors.New("expected an expression but got nothing"))
 		return expression, err
 	}
 
-	expression.Range.End = symbolName.Range.End
+	expression.Range.End = currentSymbol.Range.End
 
-	return expression, err
+	return expression, nil
 }
 
 func (p Parser) peek() *types.Token {
-	if len(p.input) == 0 { return nil }
+	if len(p.input) == 0 {
+		return nil
+	}
 
 	return &p.input[0]
 }
@@ -644,34 +813,63 @@ func (p Parser) peekAt(pos int) *types.Token {
 	return nil
 }
 
+// Return the last token before 'EOL' from the current instruction
+func (p Parser) peekAtEndCurrentInstruction() *types.Token {
+	if len(p.input) == 0 {
+		return nil
+	}
+
+	last := &p.input[0]
+
+	for _, tok := range p.input {
+		if tok.ID == types.EOL {
+			break
+		}
+		last = &tok
+	}
+
+	return last
+}
+
 func (p *Parser) nextToken() {
 	if len(p.input) == 0 {
-		return 
+		return
 	}
 
 	p.input = p.input[1:]
 }
 
-// TODO: Rename to 'skipTillNextStatement()', 'flushInputUntilNextStatement()', 
-// 'skipUntilEOL()'
+// Whenever a parse error happen for a ligne (series of tokens ending with token 'EOL'),
+// the tokens of the statements (line) are not fully read.
+// Thus to accurate parse the next statement/line, you must flush tokens of the erroneous statement
 func (p *Parser) flushInputUntilNextStatement() {
+	if len(p.input) == 0 {
+		return
+	}
+
 	for index, el := range p.input {
 		if el.ID == types.EOL {
 			index++
 			p.input = p.input[index:]
 
-			break
+			return
 		}
 	}
+
+	panic("tokens malformated used during parsing. missing 'EOL' at the end of instruction tokens")
 }
 
 func (p Parser) accept(kind types.LexerKind) bool {
-	if len(p.input) == 0 { return false }
+	if len(p.input) == 0 {
+		return false
+	}
 	return p.input[0].ID == kind
 }
 
 func (p Parser) acceptAt(pos int, kind types.LexerKind) bool {
-	if len(p.input) == 0 { return false }
+	if len(p.input) == 0 {
+		return false
+	}
 
 	if pos >= len(p.input) {
 		return false
@@ -695,27 +893,28 @@ func (p Parser) isEOF() bool {
 }
 
 func (p Parser) isEOL() bool {
-	if len(p.input) == 0 { return false }
+	if len(p.input) == 0 {
+		return false
+	}
 
 	return p.input[0].ID == types.EOL
 }
 
 func (p *Parser) incRecursionDepth() {
-	p.currentRecursionDepth ++
+	p.currentRecursionDepth++
 }
 
 func (p *Parser) decRecursionDepth() {
-	p.currentRecursionDepth --
+	p.currentRecursionDepth--
 }
 
 func (p Parser) isRecursionMaxDepth() bool {
 	return p.currentRecursionDepth >= p.maxRecursionDepth
 }
 
-// TODO: rename to NewParseError()
 func NewParseError(token *types.Token, err error) *ParseError {
 	e := &ParseError{
-		Err: err,
+		Err:   err,
 		Range: token.Range,
 		Token: token,
 	}
@@ -730,6 +929,5 @@ func getLastElement[E any](arr []E) E {
 		panic("cannot obtain the last element of an empty 'slice'")
 	}
 
-	return arr[size - 1]
+	return arr[size-1]
 }
-

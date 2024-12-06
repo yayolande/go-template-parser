@@ -12,6 +12,8 @@ func TestConvertToTextEditorPosition (t *testing.T) {
 		ContentPositionWithinBuffer	Position
 	}
 
+	// TODO: add a string expecged DS to compare will with the original
+	// eg. input[SelectionRange[0]:SelectionRange[1] == expectedString
 	data := []struct {
 		input	BufferPartition
 		expect	Range

@@ -35,7 +35,7 @@ type SymbolDefinition map[string]AstNode
 type AstNode interface {
 	String()	string
 	GetKind()	ParserKind
-	GetRange()	*Range
+	GetRange()	Range
 	SetKind(val ParserKind)
 	DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions SymbolDefinition) []Error
 	// typeAnalysis()
@@ -46,8 +46,8 @@ type AstNode interface {
 // ------------
 
 type Error interface {
-	GetError()		string
-	GetRange() *Range
+	GetError()	string
+	GetRange()	Range
 	String()		string
 }
 

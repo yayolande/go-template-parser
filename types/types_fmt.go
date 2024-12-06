@@ -53,8 +53,8 @@ func (k LexerKind) String() string {
 		str = "IDENTIFIER"
 	case ASSIGNEMENT:
 		str = "ASSIGNEMENT"
-	case ASSIGNEMENT_DEFINITION:
-		str = "ASSIGNEMENT_DEFINITION"
+	case DECLARATION_ASSIGNEMENT:
+		str = "DECLARATION_ASSIGNEMENT"
 	case STRING:
 		str = "STRING"
 	case NUMBER:
