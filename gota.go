@@ -15,6 +15,43 @@ import (
 	"github.com/yayolande/gota/types"
 )
 
+// TODO: I have an architecture/design mistake concerning the handling of error while parsing
+// First, the problem.
+// As it stands, the parsing pipeline is as follows: 
+//
+// text -> extract template -> lexer -> parsing -> analysis
+//
+// While lexing, if an error occur on a template line, that line is dropped altogether. The same goes for the parsing
+// This mean that the output of the lexer and parser drop template line
+// The issue with this design decision start with group-like template. For instance
+// `{{ if -- }} hello {{ end }}` has an error on the first template line, and because of this only "{{ end }}" token
+// will be output while lexing. Then you may ask, what may go wrong with this output ?
+// Well you see, every 'if' statement should be close by an 'end' statement. At least that's how the parser 
+// expect thing to be. However, since the 'if' statement have been dropped, the analyzer will only see the "{{ end }}" AST
+// then it will swiftly report an Error
+// thus an error on "{{ if ... }}" during lexing trigger an automatic error on "{{ end }}" while parsing. That's just wrong
+// {{ end }} do not have any issue, only "{{ if ... }}" does. this could mislead the user to think that he made a syntax error
+// or that there is too many {{ end }} statement
+//
+// I there recommend, on a future version, to overhaul the lexer and parser architecture.
+// 2 things need to change
+// first, is the tokens returned by the lexer. second, the lexer and parser should return failed tokens and ast all along
+//
+// For the first, `[]Token` should become `TokenFile struct { listToken [][]Token; listTokenSucessStatus []bool }` for the return type
+// Or maybe `TokenStatements { statement []Token; status bool }` and `TokenFile { line []TokenStatements }`. 
+// But I still wonder, is 'TokenFile' mandatory ?
+//
+// token < token line (statement == "{{ ... }}") < token file
+// token line (statement) = list of tokens with the last token being 'EOL'
+// token file = list of token line
+//
+// For the second, the lexer and parser should do as much as possible to return the closest valid token/ast, so that
+// those tokens and their states (boolean status) are seen by the parser. The parser then could make adjustment onto which statement 
+// can return error while parsing. obviously, a line of tokens that have failed should in any case return a parse error, since the 
+// whole goal of this process is to make sure the 'analysis' phase do not output indesirable error to the user
+// On the same vain, a field should be added in the AST, allowing to identify whether the ast is failed parsing or not, since now all
+// failing and successful ast are returned. `ast { isParseError bool }`
+
 // Most of the time, the 'MapFromFileNameToGroupStatementNode' variable must remain not be nil.
 // however its map 'values' can be 'nil' if needed. Warning though, the map 'keys' should never be 'nil'
 type MapFromFileNameToGroupStatementNode = map[string]*parser.GroupStatementNode
@@ -133,6 +170,7 @@ func DefinitionAnalysisSingleFile(fileName string, parsedFilesInWorkspace MapFro
 	delete(clonedParsedFilesInWorkspace, fileName)
 
 	workspaceTemplateDefinition := getWorkspaceTemplateDefinition(clonedParsedFilesInWorkspace)
+	localTemplateDefinition := types.SymbolDefinition{}
 	globalVariableDefinition := getBuiltinVariableDefinition()
 	localVariableDefinition := parser.SymbolDefinition{}
 	functionDefinition := getBuiltinFunctionDefinition()
@@ -143,7 +181,7 @@ func DefinitionAnalysisSingleFile(fileName string, parsedFilesInWorkspace MapFro
 		panic("'global/local/funciton/template' definition is nil. that map should always be instanciated, even if empty, for 'DefinitionAnalysis' processing")
 	}
 
-	errs := parseTreeActiveFile.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition)
+	errs := parseTreeActiveFile.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition, localTemplateDefinition)
 
 	return errs
 }
@@ -176,6 +214,7 @@ func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace MapFromFileNameToG
 		delete(cloneParsedFilesInWorkspace, longFileName)
 
 		workspaceTemplateDefinition = getWorkspaceTemplateDefinition(cloneParsedFilesInWorkspace)
+		localTemplateDefinition := types.SymbolDefinition{}
 		globalVariableDefinition = getBuiltinVariableDefinition()
 		localVariableDefinition = parser.SymbolDefinition{}
 		functionDefinition = getBuiltinFunctionDefinition()
@@ -185,7 +224,7 @@ func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace MapFromFileNameToG
 		}
 
 		// b. With the template definition, begin file definition analysis
-		localErrs := fileParseTree.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition)
+		localErrs := fileParseTree.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition, localTemplateDefinition)
 		errs = append(errs, localErrs...)
 	}
 

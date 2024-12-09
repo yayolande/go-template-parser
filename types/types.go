@@ -8,7 +8,7 @@ import (
 // ----------------------
 
 type Position struct {
-	Line	int
+	Line			int
 	Character	int
 }
 
@@ -32,12 +32,39 @@ type Token struct {
 type ParserKind int
 type SymbolDefinition map[string]AstNode
 
+// TODO: add 'Stringer' method for FunctionDefinition, VariableDefinition, DataStructureDefinition
+type FunctionDefinition struct {
+	Node				AstNode
+	Range				Range
+	Name				string
+	ParameterNames	[]string
+	ParameterTypes	[]string
+	ReturnTypes		[]string
+	IsValid			bool
+}
+
+type VariableDefinition struct {
+	Node				AstNode
+	Range				Range
+	Name				string
+	Type				string
+	IsValid			bool
+}
+
+type DataStructureDefinition struct {
+	Node			AstNode
+	Range			Range
+	Name			string
+	Fields		[]VariableDefinition
+	IsValid		bool
+}
+
 type AstNode interface {
 	String()	string
 	GetKind()	ParserKind
 	GetRange()	Range
 	SetKind(val ParserKind)
-	DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitions SymbolDefinition) []Error
+	DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitionsGlobal, templateDefinitionsLocal SymbolDefinition) []Error
 	// typeAnalysis()
 }
 

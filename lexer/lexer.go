@@ -52,6 +52,7 @@ func Tokenize(content []byte) (tokens []Token, failedToken []Token, errs []types
 		code := templateCodes[i]
 		position := templatePositions[i]
 
+		// TODO: rename 'tokenizeLine()' to 'tokenizeStatement()' ? not sure, I like this one
 		fragment, tokenErrs := tokenizeLine(code, position)
 
 		endOfragment = Token{ID: types.EOL, Value: []byte("#EOL"), Range: position}
@@ -280,7 +281,8 @@ func tokenizeLine(data []byte, initialPosition Range) ([]Token, []types.Error) {
 				pos.End.Character++
 				currentLocalColumnNumber += loc[1]
 
-				tokenHandler.appendToken(pattern.ID, pos, data[0:loc[1]])
+				text := trimSuperflousCharacter(data[0:loc[1]], pattern.ID)
+				tokenHandler.appendToken(pattern.ID, pos, text)
 
 				isPreviousTokenAcceptBindingToken = pattern.CanBeRightAfterToken
 				isCurrentTokenSeparatedFromPrevious = false
@@ -553,4 +555,19 @@ func createTokenizer() *tokenizer {
 	}
 
 	return to
+}
+
+func trimSuperflousCharacter(text []byte, id types.LexerKind) []byte {
+	switch id {
+	case types.COMMENT:
+		lower := 2
+		upper := len(text) - 2
+		text = text[lower:upper]
+	case types.STRING:
+		lower := 1
+		upper := len(text) - 1
+		text = text[lower:upper]
+	}
+
+	return text
 }

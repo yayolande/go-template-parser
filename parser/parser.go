@@ -3,6 +3,7 @@ package parser
 import (
 	"bytes"
 	"errors"
+	"log"	// TODO: to remove
 
 	"github.com/yayolande/gota/types"
 )
@@ -39,7 +40,10 @@ func createParser(tokens []types.Token) *Parser {
 	input := make([]types.Token, len(tokens))
 	copy(input, tokens)
 
-	defaultGroupStatementNode := &GroupStatementNode{Kind: types.KIND_GROUP_STATEMENT}
+	defaultGroupStatementNode := &GroupStatementNode{
+		Kind: types.KIND_GROUP_STATEMENT,
+		isRoot: true,
+	}
 
 	groupNodeStack := []*GroupStatementNode{}
 	groupNodeStack = append(groupNodeStack, defaultGroupStatementNode)
@@ -59,7 +63,7 @@ func appendStatementToCurrentScope(scopeStack []*GroupStatementNode, statement t
 		panic("cannot add empty statement to 'group'")
 	}
 
-	if scopeStack == nil {
+	if len(scopeStack) == 0 {
 		panic("cannot add statement to empty group. Group must be created before hand")
 	}
 
@@ -77,6 +81,10 @@ func (p *Parser) safeStatementGrouping(node types.AstNode) *ParseError {
 		panic("no initial scope available to hold the statements. There must always exist at least one 'scope/group' at any moment")
 	}
 
+	if p.openedNodeStack[0].isRoot == false {
+		panic("root node has'nt been marked as such. root node, and only the root node, can be marked as 'isRoot'")
+	}
+
 	var err *ParseError
 	var ROOT_SCOPE *GroupStatementNode = p.openedNodeStack[0]
 
@@ -85,59 +93,70 @@ func (p *Parser) safeStatementGrouping(node types.AstNode) *ParseError {
 	if !isScope {
 		appendStatementToCurrentScope(p.openedNodeStack, node)
 	} else {
+		if newGroup.isRoot == true {
+			log.Printf("non-root node cannot be flaged as 'root'.\n culprit node = %#v\n", newGroup)
+			panic("only the root node, can be marked as 'isRoot', but found it on non-root node")
+		}
+
+		stackSize := len(p.openedNodeStack)
+		lastInserted := getLastElement(p.openedNodeStack)
+		newGroup.parent = lastInserted
+
 		switch newGroup.GetKind() {
 		case types.KIND_IF, types.KIND_WITH, types.KIND_RANGE_LOOP, types.KIND_BLOCK_TEMPLATE, types.KIND_DEFINE_TEMPLATE:
+			newGroup.parent = getLastElement(p.openedNodeStack)
 			appendStatementToCurrentScope(p.openedNodeStack, newGroup)
+
 			p.openedNodeStack = append(p.openedNodeStack, newGroup)
 
 		case types.KIND_ELSE_IF:
-			size := len(p.openedNodeStack)
-
-			if size > 1 {
-				lastInserted := getLastElement(p.openedNodeStack)
-				lastInsertedKind := lastInserted.GetKind()
-
-				if lastInsertedKind == types.KIND_IF || lastInsertedKind == types.KIND_ELSE_IF {
+			if stackSize > 1 {
+				switch lastInserted.GetKind() {
+				case types.KIND_IF,types.KIND_ELSE_IF:
 					// Remove the last element from the stack and switch it with 'KIND_ELSE_IF' scope
-					p.openedNodeStack = p.openedNodeStack[:size-1]
+					p.openedNodeStack = p.openedNodeStack[:stackSize-1]
+
+					newGroup.parent = getLastElement(p.openedNodeStack)
 					appendStatementToCurrentScope(p.openedNodeStack, newGroup)
+
 					p.openedNodeStack = append(p.openedNodeStack, newGroup)
-				} else {
+				default:
 					err = &ParseError{Range: lastInserted.GetRange(),
-						Err: errors.New("'else if' statement is not compatible with '" + lastInsertedKind.String() + "'")}
+						Err: errors.New("'else if' statement is not compatible with '" + lastInserted.GetKind().String() + "'")}
 				}
 			} else {
 				err = &ParseError{Range: newGroup.GetRange(),
 					Err: errors.New("extraneous statement '" + newGroup.GetKind().String() + "'")}
 			}
 		case types.KIND_ELSE_WITH:
-			size := len(p.openedNodeStack)
-			if size > 1 {
-				lastInserted := getLastElement(p.openedNodeStack)
-				lastInsertedKind := lastInserted.GetKind()
-
-				if lastInsertedKind == types.KIND_WITH || lastInsertedKind == types.KIND_ELSE_WITH {
+			if stackSize > 1 {
+				switch lastInserted.GetKind() {
+				case types.KIND_WITH, types.KIND_ELSE_WITH:
 					// Remove the last element from the stack and switch it with 'KIND_ELSE_WITH' scope
-					p.openedNodeStack = p.openedNodeStack[:size-1]
+					p.openedNodeStack = p.openedNodeStack[:stackSize-1]
+
+					newGroup.parent = getLastElement(p.openedNodeStack)
 					appendStatementToCurrentScope(p.openedNodeStack, newGroup)
+
 					p.openedNodeStack = append(p.openedNodeStack, newGroup)
-				} else {
+				default:
 					err = &ParseError{Range: lastInserted.GetRange(),
-						Err: errors.New("'else with' statement is not compatible with '" + lastInsertedKind.String() + "'")}
+						Err: errors.New("'else with' statement is not compatible with '" + lastInserted.GetKind().String() + "'")}
 				}
 			} else {
 				err = &ParseError{Range: newGroup.GetRange(),
 					Err: errors.New("extraneous statement '" + newGroup.GetKind().String() + "'")}
 			}
 		case types.KIND_ELSE:
-			size := len(p.openedNodeStack)
-			if size > 1 {
-				lastInserted := getLastElement(p.openedNodeStack)
+			if stackSize > 1 {
 				switch lastInserted.GetKind() {
 				case types.KIND_IF, types.KIND_ELSE_IF, types.KIND_WITH, types.KIND_ELSE_WITH, types.KIND_RANGE_LOOP:
 					// Remove the last element from the stack and switch it with 'KIND_ELSE' scope
-					p.openedNodeStack = p.openedNodeStack[:size-1]
+					p.openedNodeStack = p.openedNodeStack[:stackSize-1]
+
+					newGroup.parent = getLastElement(p.openedNodeStack)
 					appendStatementToCurrentScope(p.openedNodeStack, newGroup)
+
 					p.openedNodeStack = append(p.openedNodeStack, newGroup)
 				default:
 					err = &ParseError{Range: newGroup.GetRange(),
@@ -148,15 +167,17 @@ func (p *Parser) safeStatementGrouping(node types.AstNode) *ParseError {
 					Err: errors.New("extraneous statement '" + newGroup.GetKind().String() + "'")}
 			}
 		case types.KIND_END:
-			size := len(p.openedNodeStack)
-			if size > 1 {
-				p.openedNodeStack = p.openedNodeStack[:size-1]
+			if stackSize > 1 {
+				p.openedNodeStack = p.openedNodeStack[:stackSize-1]
+
+				newGroup.parent = getLastElement(p.openedNodeStack)
 				appendStatementToCurrentScope(p.openedNodeStack, newGroup)
 			} else {
 				err = &ParseError{Range: newGroup.GetRange(), Err: errors.New("extraneous 'end' statement detected")}
 			}
 		default:
-			panic("scope type '" + newGroup.String() + "' is not yet handled for statement grouping\n" + newGroup.String())
+			log.Printf("unhandled scope type error\n scope = %#v\n", newGroup)
+			panic("scope type '" + newGroup.GetKind().String() + "' is not yet handled for statement grouping\n" + newGroup.String())
 		}
 	}
 
@@ -165,6 +186,7 @@ func (p *Parser) safeStatementGrouping(node types.AstNode) *ParseError {
 	}
 
 	if ROOT_SCOPE != p.openedNodeStack[0] {
+		log.Println("root scope change error. new Root = %#v\n", p.openedNodeStack[0])
 		panic("error, the root scope have been modified. The root scope should never change under any circumstance")
 	}
 
@@ -284,6 +306,9 @@ func (p *Parser) StatementParser() (ast types.AstNode, er *ParseError) {
 			err.Range.End = lastTokenInInstruction.Range.End
 			return commentExpression, err
 		}
+
+		// Check that this comment contains go code to semantically analize
+		lookForAndSetGoCodeInComment(commentExpression)
 
 		return commentExpression, nil
 
@@ -796,6 +821,34 @@ func (p *Parser) expressionParser() (*ExpressionNode, *ParseError) {
 
 	return expression, nil
 }
+func lookForAndSetGoCodeInComment(commentExpression *CommentNode) {
+	comment := commentExpression.Value.Value
+	comment = bytes.TrimSpace(comment)
+
+	const SEP_COMMENT_GOCODE = "go:code"
+	if ! bytes.HasPrefix(comment, []byte(SEP_COMMENT_GOCODE)) {
+		log.Printf("SEP not found :: sep = %s :: comment = %q\n", SEP_COMMENT_GOCODE, comment)
+		return
+	}
+
+	start := len(SEP_COMMENT_GOCODE)
+	comment = comment[start:]
+
+	if len(comment) == 0 {
+		log.Printf("after SEP, comment too short comment = %q\n", comment)
+		return
+	}
+
+	first := comment[0]
+	if ! (first == ' ' || first == '\n' || first == '\t' || first == '\r') {
+		log.Printf("after SEP, no separation 'space' = %q\n", comment)
+		return
+	}
+
+	comment = bytes.TrimLeft(comment, SEP_COMMENT_GOCODE)
+	commentExpression.GoCode = comment
+	log.Printf("\nHourray, go:code found : %q\n\n", comment)
+}
 
 func (p Parser) peek() *types.Token {
 	if len(p.input) == 0 {
@@ -923,11 +976,14 @@ func NewParseError(token *types.Token, err error) *ParseError {
 }
 
 func getLastElement[E any](arr []E) E {
-	size := len(arr)
+	var last E
 
+	size := len(arr)
 	if size <= 0 {
-		panic("cannot obtain the last element of an empty 'slice'")
+		return last
 	}
 
-	return arr[size-1]
+	last = arr[size-1]
+
+	return last
 }
