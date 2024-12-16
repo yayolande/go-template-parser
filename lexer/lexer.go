@@ -3,17 +3,51 @@ package lexer
 import (
 	"bytes"
 	"errors"
-	"github.com/yayolande/gota/types"
 	"log"
 	"regexp"
 )
 
-type Position = types.Position
-type Range = types.Range
-type Token = types.Token
+// ----------------------
+// Lexer Types definition
+// ----------------------
 
-// type Kind int
-type Kind = types.LexerKind
+type Position struct {
+	Line			int
+	Character	int
+}
+
+type Range struct {
+	Start	Position
+	End	Position
+}
+
+func (r Range) Contains(p Position) bool {
+	if r.Start.Line > p.Line {
+		return false
+	}
+
+	if r.End.Line < p.Line {
+		return false
+	}
+
+	if r.Start.Line == p.Line && r.Start.Character > p.Character {
+		return false
+	}
+
+	if r.End.Line == p.Line && r.End.Character < p.Character {
+		return false
+	}
+
+	return true
+}
+
+type Kind int
+
+type Token struct {
+	ID		Kind
+	Range	Range
+	Value	[]byte
+}
 
 type LexerError struct {
 	Err   error
@@ -29,13 +63,19 @@ func (l LexerError) GetRange() Range {
 	return l.Range
 }
 
+type Error interface {
+	GetError()	string
+	GetRange()	Range
+	String()		string
+}
+
 // Tokenize the source code provided by 'content'.
 // Each template pair delimitator ('{{' and '}}') represent an instruction of statement.
 // Each source code instruction is tokenized separately, and the output are tokens representing the instruction.
 // Every tokens representing an instruction always end by a 'EOL' tokens
 // To sum up, the lexer/tokenizer return an array of tokens representing all instruction all flatened.
 // The way to tell apart each instruction then is their 'EOL' separator
-func Tokenize(content []byte) (tokens []Token, failedToken []Token, errs []types.Error) {
+func Tokenize(content []byte) (tokens []Token, failedToken []Token, errs []Error) {
 	if len(content) == 0 {
 		return nil, nil, nil
 	}
@@ -55,7 +95,7 @@ func Tokenize(content []byte) (tokens []Token, failedToken []Token, errs []types
 		// TODO: rename 'tokenizeLine()' to 'tokenizeStatement()' ? not sure, I like this one
 		fragment, tokenErrs := tokenizeLine(code, position)
 
-		endOfragment = Token{ID: types.EOL, Value: []byte("#EOL"), Range: position}
+		endOfragment = Token{ID: EOL, Value: []byte("#EOL"), Range: position}
 		fragment = append(fragment, endOfragment)
 
 		if tokenErrs != nil {
@@ -208,7 +248,7 @@ func convertRangeIndexToTextEditorPosition(editorContent []byte, rangeIndex []in
 	return position
 }
 
-func tokenizeLine(data []byte, initialPosition Range) ([]Token, []types.Error) {
+func tokenizeLine(data []byte, initialPosition Range) ([]Token, []Error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
@@ -289,7 +329,7 @@ func tokenizeLine(data []byte, initialPosition Range) ([]Token, []types.Error) {
 				found = true
 				data = data[loc[1]:]
 
-				if pattern.ID == types.COMMENT && !isCommentAllowed {
+				if pattern.ID == COMMENT && !isCommentAllowed {
 					err := errors.New("no white space or characters between 'comment' and '{{' or '}}'")
 					tokenHandler.appendError(err, tokenHandler.getLastInsertedToken())
 				}
@@ -325,10 +365,10 @@ func tokenizeLine(data []byte, initialPosition Range) ([]Token, []types.Error) {
 				err = errors.New("character(s) not recognized, perhaps you should properly separate the word")
 			}
 
-			kindError := types.NOT_FOUND
+			kindError := NOT_FOUND
 			if bytes.Compare(data[:loc[1]], []byte("{{")) == 0 || bytes.Compare(data[:loc[1]], []byte("}}")) == 0 {
 				err = errors.New("Missing matching template delimitator pair")
-				kindError = types.UNEXPECTED
+				kindError = UNEXPECTED
 			}
 
 			tokenHandler.appendToken(kindError, pos, data[:loc[1]])
@@ -340,7 +380,7 @@ func tokenizeLine(data []byte, initialPosition Range) ([]Token, []types.Error) {
 	}
 
 	if len(data) > 0 {
-		tokenHandler.appendToken(types.UNEXPECTED, initialPosition, data)
+		tokenHandler.appendToken(UNEXPECTED, initialPosition, data)
 		token := tokenHandler.getLastInsertedToken()
 		tokenHandler.appendError(errors.New("unexpected character(s)"), token)
 
@@ -348,7 +388,7 @@ func tokenizeLine(data []byte, initialPosition Range) ([]Token, []types.Error) {
 	}
 
 	if len(tokenHandler.Tokens) == 0 {
-		tokenHandler.appendError(errors.New("empty tepmlate not allowed"), &Token{ID: types.NOT_FOUND, Range: initialPosition})
+		tokenHandler.appendError(errors.New("empty tepmlate not allowed"), &Token{ID: NOT_FOUND, Range: initialPosition})
 	}
 
 	return tokenHandler.Tokens, tokenHandler.Errs
@@ -402,7 +442,7 @@ func handleExternalWhiteSpaceTrimmer(data []byte, pos Range) ([]byte, bool, [2]b
 			err = &LexerError{
 				Err:   errors.New("'-' left operator cannot be next to non-white-space"),
 				Range: pos,
-				Token: &Token{Value: []byte(".-"), ID: types.SPACE_EATER, Range: pos},
+				Token: &Token{Value: []byte(".-"), ID: SPACE_EATER, Range: pos},
 			}
 		}
 	}
@@ -424,7 +464,7 @@ func handleExternalWhiteSpaceTrimmer(data []byte, pos Range) ([]byte, bool, [2]b
 			err = &LexerError{
 				Err:   errors.New("'-' rigth operator cannot be next to non-white-space"),
 				Range: pos,
-				Token: &Token{Value: []byte("-."), ID: types.SPACE_EATER, Range: pos},
+				Token: &Token{Value: []byte("-."), ID: SPACE_EATER, Range: pos},
 			}
 		}
 	}
@@ -445,7 +485,7 @@ type tokenizer struct {
 	PatternToIgnore    string
 	PatternToRecognize []patternToken
 	Tokens             []Token
-	Errs               []types.Error
+	Errs               []Error
 }
 
 func (t *tokenizer) appendToken(id Kind, pos Range, val []byte) {
@@ -485,65 +525,65 @@ func createTokenizer() *tokenizer {
 	tokenPatterns := []patternToken{
 		{
 			Value: "if|else|end|range|define|template|block|with",
-			ID:    types.KEYWORD,
+			ID:    KEYWORD,
 		},
 		{
 			Value: `"(?:[^"\n\\]|\\.)+"`,
-			ID:    types.STRING,
+			ID:    STRING,
 		},
 		{
 			Value: `\d*[.]\d+|\d+`,
-			ID:    types.NUMBER,
+			ID:    NUMBER,
 		},
 		{
 			Value: `[$][.]?\w+(?:[.][a-zA-Z_]\w*)*|[$]`,
-			ID:    types.DOLLAR_VARIABLE,
+			ID:    DOLLAR_VARIABLE,
 		},
 		{
 			Value: `(?:[.][a-zA-Z_]\w*)+|[.]`,
-			ID:    types.DOT_VARIABLE,
+			ID:    DOT_VARIABLE,
 		},
 		{
 			Value: `\w+`,
-			ID:    types.FUNCTION,
+			ID:    FUNCTION,
 		},
 		{
 			Value:                "==",
-			ID:                   types.EQUAL_COMPARISON,
+			ID:                   EQUAL_COMPARISON,
 			CanBeRightAfterToken: true,
 		},
 		{
 			Value:                "=",
-			ID:                   types.ASSIGNEMENT,
+			ID:                   ASSIGNEMENT,
 			CanBeRightAfterToken: true,
 		},
 		{
 			Value:                ":=",
-			ID:                   types.DECLARATION_ASSIGNEMENT,
+			ID:                   DECLARATION_ASSIGNEMENT,
 			CanBeRightAfterToken: true,
 		},
 		{
 			Value:                "[|]",
-			ID:                   types.PIPE,
+			ID:                   PIPE,
 			CanBeRightAfterToken: true,
 		},
 		{
 			Value:                `\(`,
-			ID:                   types.LEFT_PAREN,
+			ID:                   LEFT_PAREN,
 			CanBeRightAfterToken: true,
 		},
 		{
 			Value:                `\)`,
-			ID:                   types.RIGTH_PAREN,
+			ID:                   RIGTH_PAREN,
 			CanBeRightAfterToken: true,
 		},
 		{
 			Value: `\/\*(?:.|\s)*?(?:\*\/)`,
-			ID:    types.COMMENT,
+			ID:    COMMENT,
 		},
 		{
 			Value: `,`,
-			ID:    types.COMMA,
+			ID:    COMMA,
 		},
 	}
 
@@ -557,13 +597,13 @@ func createTokenizer() *tokenizer {
 	return to
 }
 
-func trimSuperflousCharacter(text []byte, id types.LexerKind) []byte {
+func trimSuperflousCharacter(text []byte, id Kind) []byte {
 	switch id {
-	case types.COMMENT:
+	case COMMENT:
 		lower := 2
 		upper := len(text) - 2
 		text = text[lower:upper]
-	case types.STRING:
+	case STRING:
 		lower := 1
 		upper := len(text) - 1
 		text = text[lower:upper]

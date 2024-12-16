@@ -6,6 +6,8 @@ import (
 	"os"
 
 	"github.com/yayolande/gota"
+	"github.com/yayolande/gota/lexer"
+	// github.com/yayolande/gota/parser"
 )
 
 func ddd(files ...int) {
@@ -26,6 +28,16 @@ func main() {
 		log.SetPrefix("[LOG] ")
 	}()
 
+	source := ` {{ concat (upper "world") "--breaker" }} `
+	tokens, failedTokens, lexErrs := lexer.Tokenize([]byte(source))
+	_ = tokens
+	_ = failedTokens
+	_ = lexErrs
+
+	fmt.Println(lexer.PrettyFormater(tokens))
+
+
+	return
 	// 1. Open all files under root directory
 	rootDir := "."
 	fileExtension := ".html"
@@ -35,13 +47,18 @@ func main() {
 	_ = parsedFilesInWorkspace
 	_ = parseErrors
 
+	// fmt.Println(parser.PrettyFormater(parseErrors))
+	errs := gota.DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace)
+	_ = errs
+
+	return
 	// gota.DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace)
 
 	for key, val := range parsedFilesInWorkspace {
 		_ = key
 		_ = val
-		// fmt.Println("key = ", key)
-		// fmt.Printf("%q\n\n\n\n", val)
+		fmt.Println("key = ", key)
+		fmt.Printf("%q\n\n\n\n", val)
 		gota.Print(val)
 	}
 
