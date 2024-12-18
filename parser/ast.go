@@ -2,8 +2,6 @@ package parser
 
 import (
 	"log"
-	"bytes"
-	"errors"
 
 	"github.com/yayolande/gota/lexer"
 )
@@ -71,62 +69,7 @@ func (v *VariableAssignationNode) SetKind(val Kind) {
 }
 
 func (v VariableAssignationNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitionsGlobal, templateDefinitionsLocal SymbolDefinition) []lexer.Error {
-	if v.Kind != KIND_VARIABLE_ASSIGNMENT {
-		panic("found value mismatch for 'VariableAssignationNode.Kind' during DefinitionAnalysis()\n" + v.String())
-	}
-
-	/*
-	if v.Range == getZeroRangeValue() {
-		panic("'Range' cannot be empty for VariableAssignationNode.\n" + v.String())
-	}
-	*/
-
-	if globalVariables == nil || localVariables == nil {
-		panic("'localVariables' or 'globalVariables' shouldn't be empty for 'VariableAssignationNode.DefinitionAnalysis()'")
-	}
-
-	var errs []lexer.Error
-
-	// 0. Check that 'expression' is valid
-	if v.Value != nil {
-		errLocal := v.Value.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitionsGlobal, templateDefinitionsLocal)
-		errs = append(errs, errLocal...)
-	} else {
-		errLocal := NewParseError(nil, errors.New("assignment value cannot be empty"))
-		errLocal.Range = v.Range
-	}
-
-	// 1. Check at least var is declared
-	if v.VariableName == nil {
-		errLocal := ParseError{Err: errors.New("empty variable name. syntax should be 'variable = value'"), Range: v.Range}
-		errLocal.Range = v.Range
-
-		errs = append(errs, errLocal)
-		return errs
-	}
-
-	if bytes.ContainsAny(v.VariableName.Value, ".") {
-		err := NewParseError(v.VariableName,
-			errors.New("variable name cannot contains any special character such '.' while assigning"))
-
-		errs = append(errs, err)
-		return errs
-	}
-
-	// 2. Check if variable is defined, if not report error
-	key := string(v.VariableName.Value)
-	_, isLocal := localVariables[key]
-	_, isGlobal := globalVariables[key]
-
-	if !(isLocal || isGlobal) {
-		err := NewParseError(v.VariableName, errors.New("undefined variable"))
-		errs = append(errs, err)
-		return errs
-	}
-
-	localVariables[key] = &v
-
-	return errs
+	panic("not useful anymore")
 }
 
 type MultiExpressionNode struct {
@@ -198,66 +141,7 @@ func (t TemplateStatementNode) Parent() *GroupStatementNode {
 }
 
 func (v TemplateStatementNode) DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitionsGlobal, templateDefinitionsLocal SymbolDefinition) []lexer.Error {
-	if templateDefinitionsGlobal == nil || templateDefinitionsLocal == nil {
-		panic("templateDefinitionsGlobal/templateDefinitionsLocal shouldn't be empty for 'TemplateStatementNode.DefinitionAnalysis()'")
-	}
-
-	if v.TemplateName == nil {
-		panic("the template name should never be empty for a template expression. make sure the template has been parsed correctly.\n" + v.String())
-	}
-
-	var errs []lexer.Error
-
-	// 1. template name analysis
-	switch v.Kind {
-	case KIND_USE_TEMPLATE:
-		templateName := string(v.TemplateName.Value)
-
-		_, foundGlobal := templateDefinitionsGlobal[templateName]
-		_, foundLocal := templateDefinitionsLocal[templateName]
-
-		if  ! foundGlobal && ! foundLocal {
-			err := NewParseError(v.TemplateName, errors.New("undefined template"))
-			errs = append(errs, err)
-		}
-	case KIND_DEFINE_TEMPLATE, KIND_BLOCK_TEMPLATE:
-		// NOTE: v.parent == TemplateScope, so we need to go deeper to reach the outer scope
-		if v.parent.parent != nil && v.parent.parent.isRoot == false {
-			err := NewParseError(v.TemplateName, errors.New("template cannot be defined in local scope"))
-			errs = append(errs, err)
-		}
-
-		templateName := string(v.TemplateName.Value)
-
-		// Make sure that the template haven't already be defined in the local scope (root scope)
-		_, found := templateDefinitionsLocal[templateName]
-		templateDefinitionsLocal[templateName] = v.parent
-
-		if found {
-			err := NewParseError(v.TemplateName, errors.New("template already defined"))
-			errs = append(errs, err)
-		}
-
-		if v.parent == nil {
-			log.Printf("fatal, parent not found on template definition. template = \n %s \n", v)
-			panic("'TemplateStatementNode' with unexpected empty parent node. " +
-				"the template definition and block template must have a parent which will contain all the statements inside the template")
-		}
-
-		if v.parent.Kind != v.Kind {
-			panic("value mismatch. 'TemplateStatementNode.Kind' and 'TemplateStatementNode.parent.Kind' must similar")
-		}
-	default:
-		panic("'TemplateStatementNode' do not accept any other type than 'KIND_DEFINE_TEMPLATE, KIND_BLOCK_TEMPLATE, KIND_USE_TEMPLATE'")
-	}
-
-	// 2. Expression analysis, if any
-	if v.Expression != nil {
-		localErr := v.Expression.DefinitionAnalysis(globalVariables, localVariables, functionDefinitions, templateDefinitionsGlobal, templateDefinitionsLocal)
-		errs = append(errs, localErr...)
-	}
-
-	return errs
+	panic("not useful anymore")
 }
 
 type GroupStatementNode struct {
@@ -317,3 +201,55 @@ func (v CommentNode) DefinitionAnalysis(globalVariables, localVariables, functio
 	panic("not useful anymore")
 }
 
+// --------------
+// --------------
+// Tree Traversal
+// --------------
+// --------------
+
+type Visitor interface {
+	Visit(node AstNode) Visitor
+}
+
+func Walk(action Visitor, node AstNode) {
+	if action.Visit(node) == nil {
+		return
+	}
+
+	switch n := node.(type) {
+	case *GroupStatementNode:
+		if n.ControlFlow != nil {
+			Walk(action, n.ControlFlow)
+		}
+
+		for _, statement := range n.Statements {
+			Walk(action, statement)
+		}
+
+	case *TemplateStatementNode:
+		Walk(action, n.Expression)
+
+	case *VariableDeclarationNode:
+		Walk(action, n.Value)
+
+	case *VariableAssignationNode:
+		Walk(action, n.Value)
+
+	case *MultiExpressionNode:
+		for _, expression := range n.Expressions {
+			Walk(action, expression)
+		}
+
+	case *ExpressionNode:
+		//	do nothing
+
+	case *CommentNode:
+		// do nothing
+
+	default:
+		log.Printf("unknown type for the traversal.\n node = %#v\n", n)
+		panic("unknown type for the traversal")
+	}
+
+	action.Visit(nil)
+}

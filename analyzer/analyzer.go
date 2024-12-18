@@ -1,3 +1,13 @@
+// TODO: features to add 
+//
+// [ ] Unused variable detection 
+// [ ] Check that 'keyword' and 'types' are not used as parameter names (functions)
+// [x] Function declaration in comment have invalid 'Range'
+// [ ] Dectection of cyclical import
+// [ ] Advanced type-system
+// [ ] Go-To Definition
+// [ ] Testing for major stable features
+
 package analyzer
 
 import (
@@ -345,6 +355,7 @@ func definitionAnalysisRecursive(node parser.AstNode, parent *parser.GroupStatem
 	case *parser.VariableDeclarationNode:
 		statementType, errs = definitionAnalysisVariableDeclaration(n, parent, file, globalVariables, localVariables)
 	case *parser.VariableAssignationNode:
+		statementType, errs = definitionAnalysisVariableAssignment(n, parent, file, globalVariables, localVariables)
 	case *parser.MultiExpressionNode:
 		statementType, errs = definitionAnalysisMultiExpression(n, parent, file, globalVariables, localVariables)
 	case *parser.ExpressionNode:
@@ -392,8 +403,6 @@ func definitionAnalysisGroupStatement(node *parser.GroupStatementNode, parent *p
 			panic("this 'GroupStatementNode' expect a non-nil 'controlFlow' based on its type ('Kind')")
 		}
 
-		// localErr = v.ControlFlow.DefinitionAnalysis(scopedGlobalVariables, localVariables, functionDefinitions, templateDefinitionsGlobal, scopedTemplateDefinitionLocal)
-		// errs = append(errs, localErr...)
 		statementType, errs = definitionAnalysisRecursive(node.ControlFlow, node, file, scopedGlobalVariables, localVariables)
 	}
 
@@ -403,7 +412,6 @@ func definitionAnalysisGroupStatement(node *parser.GroupStatementNode, parent *p
 
 	case parser.KIND_RANGE_LOOP, parser.KIND_WITH, parser.KIND_ELSE_WITH:
 		// TODO: I do believe those variable '$' and '.' should at some point be saved into the 'FileDefinition'
-		// scopedGlobalVariables["."] = node.ControlFlow
 
 		scopedGlobalVariables["."] = NewVariableDefinition(".", node.ControlFlow, file.Name)
 		file.ScopeToVariables[node] = append(file.ScopeToVariables[node], scopedGlobalVariables["."])
@@ -414,8 +422,6 @@ func definitionAnalysisGroupStatement(node *parser.GroupStatementNode, parent *p
 		localVariables = make(map[string]*VariableDefinition)
 
 		// TODO: I do believe those variable '$' and '.' should at some point be saved into the 'FileDefinition'
-		// scopedGlobalVariables["."] = node.ControlFlow
-		// scopedGlobalVariables["$"] = node.ControlFlow
 		scopedGlobalVariables["."] = NewVariableDefinition(".", node.ControlFlow, file.Name)
 		scopedGlobalVariables["$"] = NewVariableDefinition("$", node.ControlFlow, file.Name)
 
@@ -425,20 +431,6 @@ func definitionAnalysisGroupStatement(node *parser.GroupStatementNode, parent *p
 		file.ScopeToVariables[node] = append(file.ScopeToVariables[node], scopedGlobalVariables["."])
 		file.ScopeToVariables[node] = append(file.ScopeToVariables[node], scopedGlobalVariables["$"])
 
-		// TODO: Handle 'CommentNode' that definition the input of the 'template'
-
-		/*
-		control, ok := node.ControlFlow.(*parser.TemplateStatementNode)
-		if !ok {
-			panic("type mismatch for 'v.ControlFlow'. expected a 'TemplateStatementNode'")
-		}
-
-		name := string(control.TemplateName.Value)
-		templateDefinitionsLocal[name] = &node		// useful for the outer scope 'GroupStatementNode'
-
-		// avoid infinite recursive call with 'template' so that children within current template (GroupStatementNode) cannot call the parent
-		delete(scopedTemplateDefinitionLocal, name) 
-		*/
 	default:
 		panic("found unexpected 'Kind' for 'GroupStatementNode' during 'DefinitionAnalysis()'\n node = " + node.String())
 	}
@@ -449,30 +441,7 @@ func definitionAnalysisGroupStatement(node *parser.GroupStatementNode, parent *p
 			panic("statement within 'GroupStatementNode' cannot be nil. make to find where this nil value has been introduced and rectify it")
 		}
 
-		/*
-		// Build variables definition within current scope
-		varDeclaration, ok := statement.(*parser.VariableDeclarationNode)
-		if ok {
-			var varHolder *VariableDefinition
-
-			for _, varName := range varDeclaration.VariableNames {
-				if varName == nil {
-					log.Printf("variableNames cannot host 'nil' element.\n VariableNames = %#v\n", varDeclaration)
-					panic("variableNames cannot contains nil element. instead leave it empty")
-				}
-
-				varHolder = &VariableDefinition{}
-				varHolder.Name = string(varName.Value)
-				varHolder.Range = varName.Range
-				varHolder.Node = varDeclaration
-
-				v.Variables = append(node.Variables, varHolder)
-			}
-		}
-		*/
-
 		// Make DefinitionAnalysis for every children
-		// localErr = statement.DefinitionAnalysis(scopedGlobalVariables, localVariables, functionDefinitions, templateDefinitionsGlobal, scopedTemplateDefinitionLocal)
 		statementType, localErrs = definitionAnalysisRecursive(statement, node, file, globalVariables, localVariables)
 		errs = append(errs, localErrs...)
 	}
@@ -788,7 +757,6 @@ func definitionAnalysisVariableDeclaration(node *parser.VariableDeclarationNode,
 		def.IsValid = false
 
 		file.ScopeToVariables[parentScope] = append(file.ScopeToVariables[parentScope], def)
-		// localVariables[key] = node
 		localVariables[key] = def
 	}
 
@@ -796,7 +764,73 @@ func definitionAnalysisVariableDeclaration(node *parser.VariableDeclarationNode,
 }
 
 func definitionAnalysisVariableAssignment(node *parser.VariableAssignationNode, parent *parser.GroupStatementNode, file *FileDefinition, globalVariables, localVariables map[string]*VariableDefinition) ([2]string, []lexer.Error) {
-	panic("not implemented yet")
+	if node.Kind != parser.KIND_VARIABLE_ASSIGNMENT {
+		panic("found value mismatch for 'VariableAssignationNode.Kind' during DefinitionAnalysis()\n" + node.String())
+	}
+
+	if globalVariables == nil || localVariables == nil {
+		panic("'localVariables' or 'globalVariables' shouldn't be empty for 'VariableAssignationNode.DefinitionAnalysis()'")
+	}
+
+	var errs []lexer.Error
+	var expressionType [2]string
+
+	// 0. Check that 'expression' is valid
+	if node.Value != nil {
+		var localErrs []lexer.Error
+
+		expressionType, localErrs = definitionAnalysisMultiExpression(node.Value, parent, file, globalVariables, localVariables)
+		errs = append(errs, localErrs...)
+	} else {
+		errLocal := parser.NewParseError(nil, errors.New("assignment value cannot be empty"))
+		errLocal.Range = node.Range
+	}
+
+	// 1. Check at least var is declared
+	if node.VariableName == nil {
+		errLocal := parser.ParseError{Err: errors.New("empty variable name. syntax should be 'variable = value'"), Range: node.Range}
+		errLocal.Range = node.Range
+
+		errs = append(errs, errLocal)
+		return expressionType, errs
+	}
+
+	if bytes.ContainsAny(node.VariableName.Value, ".") {
+		err := parser.NewParseError(node.VariableName,
+			errors.New("variable name cannot contains any special character such '.' while assigning"))
+
+		errs = append(errs, err)
+		return expressionType, errs
+	}
+
+	// 2. Check if variable is defined, if not report error
+	name := string(node.VariableName.Value)
+	defLocal, isLocal := localVariables[name]
+	defGlobal, isGlobal := globalVariables[name]
+
+	var def *VariableDefinition
+
+	if isLocal {
+		def = defLocal
+	} else if isGlobal {
+		def = defGlobal
+	} else {
+		err := parser.NewParseError(node.VariableName, errors.New("undefined variable"))
+		errs = append(errs, err)
+		return expressionType, errs
+	}
+
+	if ! matchTypeWithHeuristicStrategy(def.Type, expressionType[0]) {
+		err := parser.NewParseError(node.VariableName, errors.New("type mismatch; expected '" + def.Type + "' but got '" + expressionType[0] +"'"))
+		errs = append(errs, err)
+
+		expressionType[0] = TYPE_INVALID
+		return expressionType, errs
+	}
+
+	// localVariables[name] = &node
+
+	return expressionType, errs
 }
 
 func definitionAnalysisMultiExpression(node *parser.MultiExpressionNode, parent *parser.GroupStatementNode, file *FileDefinition, globalVariables, localVariables map[string]*VariableDefinition) ([2]string, []lexer.Error) {
@@ -888,7 +922,7 @@ func definitionAnalysisExpression(node *parser.ExpressionNode, parent *parser.Gr
 	var errs []lexer.Error
 
 	if len(node.Symbols) == 0 {
-		err := parser.NewParseError(nil, errors.New("empty expression is not allowed"))
+		err := parser.NewParseError(nil, errors.New("empty expression"))
 		err.Range = node.Range
 		errs = append(errs, err)
 
@@ -1179,6 +1213,11 @@ func (p *definitionAnalyzer) makeSymboleDefinitionAnalysis(localVariables, globa
 			variableName := string(symbol.Value)
 			usedVariables[variableName] = true
 
+			index := strings.IndexByte(variableName, '.')
+			if index > 1 {
+				variableName = variableName[:index]
+			}
+
 			// var def *VariableDefinition
 			defLocal, foundLocal := localVariables[variableName]
 			defGlobal, foundGlobal := globalVariables[variableName]
@@ -1187,6 +1226,8 @@ func (p *definitionAnalyzer) makeSymboleDefinitionAnalysis(localVariables, globa
 				symbolType = defLocal.Type
 			} else if foundGlobal {
 				symbolType = defGlobal.Type
+			} else if strings.HasPrefix(variableName, "$.") {
+				symbolType = TYPE_ANY
 			} else {
 				err := parser.NewParseError(symbol, errors.New("undefined variable"))
 				errs = append(errs, err)
@@ -1402,7 +1443,8 @@ func checkSymbolType(tokens []*lexer.Token, types []string, exprRange lexer.Rang
 			continue
 		}
 
-		if expectedType != argType {
+		// if expectedType != argType {
+		if ! matchTypeWithHeuristicStrategy(expectedType, argType) {
 			err := parser.NewParseError(argToken, errors.New("argument type mismatch, expected '" + expectedType + "' but got '" + argType + "'"))
 			errs = append(errs, err)
 		}
@@ -1480,6 +1522,8 @@ func (v* astVisitor) Visit (node ast.Node) ast.Visitor {
 		v.functionsList[function.Name] = function.Node
 		v.file.Functions = append(v.file.Functions, function)
 
+		log.Printf("--> function Range : %s\n", v.function.Range)
+
 		return v
 	case *ast.FuncType:
 		var err error
@@ -1536,6 +1580,20 @@ func (v* astVisitor) Visit (node ast.Node) ast.Visitor {
 
 				v.function.ReturnTypes[count] = paramType
 			}
+
+			// Check return type for validation
+			if v.function.ReturnTypes[1] == "" {
+				v.function.ReturnTypes[1] = TYPE_VOID
+			} else if v.function.ReturnTypes[1] != TYPE_ERROR {
+				err := parser.NewParseError(&lexer.Token{}, errors.New("the second return type can either be empty or an 'error' type"))
+				err.Range = v.function.Range
+
+				v.errs = append(v.errs, err)
+			}
+
+			if v.function.ReturnTypes[0] == "" {
+				v.function.ReturnTypes[0] = TYPE_VOID
+			}
 		}
 
 		return nil
@@ -1558,13 +1616,6 @@ func inspectFunctionsWithinCommentGoCode(comment *parser.CommentNode, parent *pa
 // take into consideration the source file outside the comment go code
 func inspectDataStructuresWithinCommentGoCode(comment *parser.CommentNode, fileSet *token.FileSet) func(node ast.Node) bool {
 	panic("not implemented yet")
-
-	// functions := comment.Functions
-	// functions
-
-	return func(node ast.Node) bool {
-		return false
-	}
 }
 
 // it removes the added header from the 'position' count
@@ -1582,6 +1633,9 @@ func remapRangeFromCommentGoCodeToSource(header string, boundary, target lexer.R
 	// NOTE: because of go/parser, 'target.Start.Line' always start at '1'
 	rangeRemaped.Start.Line = boundary.Start.Line + target.Start.Line - 1 - maxLineInHeader
 	rangeRemaped.End.Line = boundary.Start.Line + target.End.Line - 1 - maxLineInHeader
+
+	rangeRemaped.Start.Character = target.Start.Character - 1
+	rangeRemaped.End.Character = target.End.Character - 1
 
 	if target.Start.Line - maxLineInHeader == 1 {
 		rangeRemaped.Start.Character = boundary.Start.Character + len(header) + target.Start.Character
@@ -1639,6 +1693,22 @@ func NewParseErrorFromErrorList(err *scanner.Error, randomColumnOffset int) *par
 	}
 
 	return parseErr
+}
+
+func matchTypeWithHeuristicStrategy(one, two string) bool {
+	if one == TYPE_ANY || two == TYPE_ANY {
+		return true
+	}
+
+	if one == two {
+		return true
+	}
+
+	if one == TYPE_INVALID || two == TYPE_INVALID {
+		return false
+	}
+
+	return false
 }
 
 func getZeroRangeValue() lexer.Range {
