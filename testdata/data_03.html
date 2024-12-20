@@ -1,0 +1,57 @@
+{{ dddddd }}
+
+{{ define "tem" }}
+	{{ .Is }}		// 'go-to-definition' not working because text after '.' cloud the computation
+	{{ . }}
+	{{ $ }}
+{{ end }}
+
+{{ template "tem" . }}
+{{ template "my_fabulous" }}
+
+
+{{ . }}
+
+{{ define "titi" }}
+{{ end }}
+
+{{ $mokolo }}
+{{ dd }}
+{{ dfdfj /*df */ nono }}
+{{ $_el }}
+{{ $. }}
+{{ $a := 20 }}
+{{ $a.coco }}		// 'go-to-definition' not working because text after '.' disrupt the computation
+
+{{- /*
+dfdfdf
+*/ -}}
+
+{{ .Name 
+
+}}
+{{ . }}
+{{ $ }}
+
+{{ $..no }}
+{{ $.de.de.d }}
+{{ $de.de.d }}
+{{ $de.de..d }}
+{{ $de.de.d. }}
+{{ $no.i }}
+{{ .no.d.ddd }}
+{{ mel.dej }}
+{{ dd.d..jj }}
+
+
+
+{{ $man = "man" }}
+
+{{ $elmore := "elmore" }}
+{{ if $okay := true }} {{end }}}
+
+{{/*
+go:code
+
+func dict()
+*/}}

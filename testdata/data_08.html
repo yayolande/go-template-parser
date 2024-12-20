@@ -1,0 +1,47 @@
+
+<!--
+  Copyright 2021 The Go Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style
+  license that can be found in the LICENSE file.
+-->
+
+{{define "title"}}
+  <title>{{.Title}}{{if ne .PageType "std"}} {{.PageType}}{{end}}{{with .SelectedTab.Name}} {{.}}{{end}}{{if ne .PageType "std"}} - {{.Unit.Path}}{{end}} - Go Packages</title>
+{{end}}
+
+{{define "description"}}{{.MetaDescription}}{{end}}
+
+{{define "pre-content"}}
+  <link href="/static/frontend/unit/unit.min.css?version={{.AppVersionLabel}}" rel="stylesheet">
+  {{block "main-styles".}}{{end}}
+{{end}}
+
+{{define "main"}}
+  <main class="go-Main" id="main-content">
+    <div class="go-Main-banner" role="alert">
+      {{- block "main-banner" .}}{{end -}}
+    </div>
+    <header class="go-Main-header js-mainHeader">
+      {{- block "main-header" .}}{{end -}}
+    </header>
+    <aside class="go-Main-aside {{if not (eq .SelectedTab.Name "")}}go-Main-aside--empty{{end}} js-mainAside">
+      {{- block "main-aside" .}}{{end -}}
+    </aside>
+    <nav class="go-Main-nav go-Main-nav--sticky js-mainNav" aria-label="Outline">
+      {{- block "main-nav" .}}{{end -}}
+    </nav>
+    <article class="go-Main-article js-mainContent">
+      {{- block "main-content" .}}{{end -}}
+    </article>
+    <footer class="go-Main-footer">
+      {{- block "main-footer" .}}{{end -}}
+    </footer>
+  </main>
+{{end}}
+
+{{define "post-content"}}
+  {{block "main-scripts" .}}{{end}}
+  <script>
+    loadScript('/static/frontend/unit/unit.js')
+  </script>
+{{end}}

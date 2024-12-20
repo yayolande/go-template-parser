@@ -1,0 +1,72 @@
+{{/* go:code 
+
+func diction() 
+// func dict (string, a int) string
+func dict (string, int) string
+func ddd(dd) 
+func dd(d djd d) 
+func bro(_, _ string) string
+
+*/}}
+{{ }}
+
+{{ dd "hell" }}
+{{ dict "hellen" "output" }}
+{{ 23 | dict 44 }}
+{{ dict "222" 23 }}
+{{ brandon "mis" }}
+{{ $dict := "hello" }}
+{{ $dict "jjjj" }}
+{{ $dict }}
+{{ dict }}
+{{ dandelion }}
+{{ $var := "hello" }}
+{{ $var = 23 }}
+
+{{ $ := "elton" }}  // this one right here should be a big no-no, redefining $ is not good (analysis) although it is valid syntax
+{{ $. := "elton" }}  should through an error as well (bad syntax)
+{{ $.angolmoi }}		// should not through an error if '$' stills refer to initial input (only linting error is possible, not syntax error)
+{{ $.ban }}
+{{ $.planet := "elton" }}	// must through an error 
+{{ $.planet = "elton" }}	// must through an error because of the assignment
+{{ .planet = "hello" }}		// must through an error
+
+source = ` {{ concat (((upper "world") )"--breaker" }} `. The previous text is valid under html/template rule, make it pass
+
+{{- /*go:code func dandelion(int) int */ -}}
+
+{{ }}
+
+{{ | }}
+
+{{ $ }}
+{{ jor := "jd" }}
+{{ $val := "hello" }}
+
+{{ $val := "the storm" }}
+{{ define "titi" }}
+	{{ $val := "calco" }}
+	{{ $val }}
+	{{ $ }}
+	{{ . }}
+{{ end }}
+
+{{ $val }}
+
+{{ define "titi" }}
+{{ end }}
+
+{{ define "tonton" .Pal }}
+	{{ define "uncle" }}
+	{{ end }}
+{{ end }}
+
+{{ if ((true)) }}
+	{{ define "tata" }}
+	{{ end }}
+{{ end }}
+
+{{ template "tonton" . }}
+{{ template "tata" . }}
+
+ 

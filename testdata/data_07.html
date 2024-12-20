@@ -1,0 +1,249 @@
+
+<!--
+  Copyright 2021 The Go Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style
+  license that can be found in the LICENSE file.
+-->
+<!--
+	https://cs.opensource.google/go/x/pkgsite/+/master:static/frontend/search/search.tmpl
+-->
+
+{{define "title"}}
+  <title>{{.Query}} - Search Results - Go Packages</title>
+{{end}}
+
+{{define "robots"}}
+  <meta name="robots" content="noindex">
+{{end}}
+
+{{define "pre-content"}}
+  <link href="/static/frontend/search/search.min.css?version={{.AppVersionLabel}}" rel="stylesheet">
+{{end}}
+
+{{define "post-content"}}
+  <script>
+    loadScript('/static/frontend/search/search.js')
+  </script>
+{{end}}
+
+{{define "main"}}
+  <main class="go-Container" id="main-content">
+    {{template "search_header" .}}
+    {{template "search_tabs" .}}
+    <div class="go-Content SearchResults">
+      {{if eq .SearchMode .SearchModeSymbol }}
+        {{template "search_symbol" .}}
+      {{else}}
+        {{template "search_package" .}}
+      {{end}}
+      {{if gt (len .Results) 0}}
+        {{template "search_pagination" .}}
+      {{end}}
+    </div>
+  </main>
+{{end}}
+
+{{define "search_symbol"}}
+  <div class="SearchResults-summary" role="heading" aria-level="1">
+      Showing <strong>{{len $.Results}}</strong> matching {{.SearchModeSymbol}}s.
+      <a href="/search-help">Search help</a>
+  </div>
+  {{if eq (len .Results) 0}}
+    {{template "search_no_results" .}}
+  {{else}}
+    {{template "search_symbol_results" .}}
+  {{end}}
+{{end}}
+
+{{define "search_no_results"}}
+ {{template "gopher-airplane" "It looks like there are no matches for your search."}}
+ <p class="SearchResults-emptyContentMessage">
+   Need help? Check out <a href="/search-help" data-gtmc="search help"> tips for searching</a> on pkg.go.dev.
+ </p>
+{{end}}
+
+{{define "search_symbol_results"}}
+  <div>
+    {{$query := .Query}}
+    {{range $i, $r := .Results}}
+      {{$moreLink := eq $i (subtract $.Pagination.DefaultLimit 1)}}
+      {{if eq $i $.Pagination.DefaultLimit}}<hr class="SearchResults-divider">{{end}}
+      <div class="SearchSnippet" {{if $moreLink}}id="more-results"{{end}}>
+        <div class="SearchSnippet-headerContainer">
+          <h2>
+            <a href="{{.SymbolLink}}" data-gtmc="symbol search result symbol" data-gtmv="{{$i}}"
+                data-test-id="snippet-title">
+              <span class="SearchSnippet-symbolKind">{{.SymbolKind}}</span>
+              {{.SymbolName}}
+            </a>
+            <span class="SearchSnippet-header-dash">in</span>
+            <a href="/{{$r.PackagePath}}" data-gtmc="symbol search result package" data-gtmv="{{$i}}"
+              class="">{{$r.PackagePath}}</a>
+          </h2>
+          {{with $r.ChipText}}<span class="go-Chip go-Chip--inverted">{{.}}</span>{{end}}
+        </div>
+        {{with $r.Synopsis}}<p class="SearchSnippet-infoLabel" data-test-id="snippet-synopsis">{{.}}</p>{{end}}
+        <pre class="SearchSnippet-symbolCode">{{.SymbolSynopsis}}</pre>
+        {{template "search_metadata" $r}}
+      </div> <!-- SearchSnippet -->
+    {{end}}
+  </div>
+{{end}}
+
+{{define "search_package"}}
+  <div class="SearchResults-summary" role="heading" aria-level="1">
+    Showing <strong>{{len .Results}}</strong> modules with matching packages. <a href="/search-help">Search help</a>
+  </div>
+  {{if eq (len .Results) 0}}
+    {{template "search_no_results" .}}
+  {{else}}
+    {{template "search_package_results" .}}
+  {{end}}
+{{end}}
+
+{{define "search_package_results"}}
+  <div>
+    {{$query := .Query}}
+    {{range $i, $v := .Results}}
+      {{$moreLink := eq $i (subtract $.Pagination.DefaultLimit 1)}}
+      {{if eq $i $.Pagination.DefaultLimit}}<hr class="SearchResults-divider">{{end}}
+      <div class="SearchSnippet" {{if $moreLink}}id="more-results"{{end}}>
+        <div class="SearchSnippet-headerContainer">
+          <h2>
+            <a href="/{{$v.PackagePath}}" data-gtmc="search result" data-gtmv="{{$i}}"
+                data-test-id="snippet-title">
+              {{$v.Name}}
+              <span class="SearchSnippet-header-path">({{$v.PackagePath}})</span>
+            </a>
+          </h2>
+          {{with $v.ChipText}}<span class="go-Chip go-Chip--inverted">{{.}}</span>{{end}}
+          {{template "vuln-chip-condensed" $v.Vulns}}
+        </div>
+        {{with $v.Synopsis}}
+          <p class="SearchSnippet-synopsis" data-test-id="snippet-synopsis">
+            {{.}}
+          </p>
+        {{end}}
+        {{template "search_metadata" $v}}
+        {{with .OtherMajor}}
+          <div class="go-textSubtle">
+            <span class="go-textSubtle">{{.Heading}}</span>
+            {{$numLinks := (len .Links)}}
+            {{range $i, $v := .Links}}
+              <a href="/{{$v.Href}}" data-gtmc="search result other major">
+                <strong>{{$v.Body}}</strong><span class="go-textSubtle">{{if lt $i (subtract $numLinks 1)}},{{end}}</span>
+              </a>
+            {{end}}
+          </div>
+        {{end}}
+        {{with .SameModule}}
+          {{$m := .}}
+          <div class="SearchSnippet-sub go-textSubtle">
+            <strong>{{.Heading}}</strong>
+            {{range $i, $v := .Links}}
+              {{if and (lt $i 5) (ne $v.Body "")}}
+                <a class="go-Chip go-Chip--subtle"
+                    href="/{{$v.Href}}"
+                    {{if gt $i 4 }}data-hidden="true"{{end}}
+                    data-gtmc="search result same module">
+                  {{$v.Body}}
+                </a>
+              {{end}}
+            {{end}}
+            {{$more := subtract (len .Links) 5}}
+            {{if gt (len .Links) 5}}
+              <a href="{{$v.ModulePath}}#section-directories" class="go-Chip go-Chip--subtle"
+                  data-gtmc="search result more packages">
+                +{{$more}} more
+              </a>
+            {{end}}
+          </div>
+        {{end}}
+      </div> <!-- SearchSnippet -->
+    {{end}}
+  </div>
+{{end}}
+
+{{define "search_metadata"}}
+  <div class="SearchSnippet-infoLabel">
+    <a href="/{{$.PackagePath}}?tab=importedby" aria-label="Go to Imported By">
+       <span class="go-textSubtle">Imported by </span><strong>{{.NumImportedBy}}</strong>
+    </a>
+    <span class="go-textSubtle">|</span>
+    <span class="go-textSubtle">
+      <strong>{{.DisplayVersion}}</strong> published on <span data-test-id="snippet-published"><strong>{{.CommitTime}}</strong></span>
+    </span>
+    <span class="go-textSubtle">|</span>
+    <span data-test-id="snippet-license">
+    {{if .Licenses}}
+      <a href="/{{$.PackagePath}}?tab=licenses" aria-label="Go to Licenses">
+        {{commaseparate .Licenses}}
+      </a>
+    {{else}}
+      <span class="go-textSubtle">No license</span>
+    {{end}}
+    </span>
+  </div>
+{{end}}
+
+{{define "search_pagination"}}
+  {{$p := .Pagination}}
+  <div class="SearchPagination" data-test-id="pagination">
+    Didn't find what you were looking for?
+    {{$m := or $.SearchMode .SearchModePackage}}
+    {{- if and (lt $p.Limit $p.MaxLimit) (eq $p.Limit (len .Results)) -}}
+      <a href="{{$p.URL $p.MaxLimit $m ""}}#more-results" data-gtmc="search more results">Show more results.</a>
+    {{- else -}}
+      See <a href="/search-help" data-gtmc="search help"> search help.</a>
+    {{- end -}}
+  </div>
+{{end}}
+
+{{define "search_tabs"}}
+  <div class="SearchResults-tabs">
+    <nav class="go-TabNav">
+      <ul>
+        <li {{if not (eq .SearchMode .SearchModeSymbol)}}aria-current="page"{{end}}>
+          <a href="{{.Pagination.URL .Pagination.Limit .SearchModePackage .PackageTabQuery}}">Packages</a>
+        </li>
+        <li {{if eq .SearchMode .SearchModeSymbol}}aria-current="page"{{end}}>
+          <a href="{{.Pagination.URL .Pagination.Limit .SearchModeSymbol .Query}}">Symbols</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+{{end}}
+
+{{define "search_header"}}
+  <header class="SearchResults-header js-searchHeader">
+    <div class="SearchResults-headerContent">
+      <a class="SearchResults-headerLogo" href="https://go.dev/" aria-hidden="true" tabindex="-1" data-gtmc="header link"
+          aria-label="Link to Go Homepage">
+        <img height="78" width="207" src="/static/shared/logo/go-blue.svg" alt="Go">
+      </a>
+      <form
+        class="go-InputGroup go-ShortcutKey SearchResults-search"
+        action="/search"
+        data-shortcut="/"
+        data-shortcut-alt="search"
+        data-gtmc="search form"
+        aria-label="Search for a package"
+        role="search"
+      >
+        <input name="q" class="go-Input js-searchFocus" aria-label="Search for a package" type="search"
+            autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"
+            placeholder="{{.SearchPrompt}}" value="{{.Query}}" />
+        <input name="m" value="{{.SearchMode}}" hidden>
+        <button class="go-Button go-Button--inverted" aria-label="Submit search">
+          <img
+            class="go-Icon"
+            height="24"
+            width="24"
+            src="/static/shared/icon/search_gm_grey_24dp.svg"
+            alt=""
+          />
+        </button>
+      </form>
+    </div>
+  </header>
+{{end}}
