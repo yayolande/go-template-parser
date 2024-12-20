@@ -52,9 +52,6 @@ import (
 // On the same vain, a field should be added in the AST, allowing to identify whether the ast is failed parsing or not, since now all
 // failing and successful ast are returned. `ast { isParseError bool }`
 
-// Most of the time, the 'MapFromFileNameToGroupStatementNode' variable must remain not be nil.
-// however its map 'values' can be 'nil' if needed. Warning though, the map 'keys' should never be 'nil'
-type MapFromFileNameToGroupStatementNode = map[string]*parser.GroupStatementNode
 type Error = lexer.Error
 
 // Recursively open files from 'rootDir'.
@@ -122,8 +119,8 @@ func ParseSingleFile(source []byte) (*parser.GroupStatementNode, []Error) {
 
 // Parse all files within a workspace.
 // The output is an AST node, and an error list containing parsing error and suggestions
-func ParseFilesInWorkspace(workspaceFiles map[string][]byte) (MapFromFileNameToGroupStatementNode, []Error) {
-	parsedFilesInWorkspace := make(MapFromFileNameToGroupStatementNode)
+func ParseFilesInWorkspace(workspaceFiles map[string][]byte) (map[string]*parser.GroupStatementNode, []Error) {
+	parsedFilesInWorkspace := make(map[string]*parser.GroupStatementNode)
 
 	var errs []Error
 	for longFileName, content := range workspaceFiles {
@@ -148,62 +145,43 @@ func ParseFilesInWorkspace(workspaceFiles map[string][]byte) (MapFromFileNameToG
 }
 
 // TODO: disallow circular dependencies for 'template definition'
-func DefinitionAnalysisSingleFile(fileName string, parsedFilesInWorkspace MapFromFileNameToGroupStatementNode) []Error {
-	if parsedFilesInWorkspace == nil {
-		panic("'parsedFilesInWorkspace' cannot be nil during definition analysis (single file)")
+func DefinitionAnalysisSingleFile(fileName string, parsedFilesInWorkspace map[string]*parser.GroupStatementNode) (*checker.FileDefinition, []Error) {
+	if len(parsedFilesInWorkspace) == 0 {
+		return nil, nil
 	}
 
-	parseTreeActiveFile, ok := parsedFilesInWorkspace[fileName]
-	if !ok {
-		log.Printf("fatal, fileName = %s\n parsedFilesInWorkspace = %s\n", fileName, parsedFilesInWorkspace)
-		panic(fileName + " is outside the current workspace, cant compute definition analysis for that file." +
-			" to resolve the matter, add that file to the workspace, or create a new workspace with that file in it")
-	}
-
+	parseTreeActiveFile := parsedFilesInWorkspace[fileName]
 	if parseTreeActiveFile == nil {
-		return nil
+		return nil, nil
 	}
 
 	clonedParsedFilesInWorkspace := maps.Clone(parsedFilesInWorkspace)
 	delete(clonedParsedFilesInWorkspace, fileName)
 
 	workspaceTemplateDefinition := getWorkspaceTemplateDefinition(clonedParsedFilesInWorkspace)
-	// globalVariableDefinition := getBuiltinVariableDefinition()
-	// localVariableDefinition := parser.SymbolDefinition{}
-	// functionDefinition := getBuiltinFunctionDefinition()
-
-
-	log.Printf("global template def: %#v\n\n", workspaceTemplateDefinition)
 
 	if workspaceTemplateDefinition == nil {
 		panic("'global/local/funciton/template' definition is nil. that map should always be instanciated, even if empty, for 'DefinitionAnalysis' processing")
 	}
 
 	file, errs := checker.DefinitionAnalysis(fileName, parseTreeActiveFile, workspaceTemplateDefinition)
-	_ = file
-	// errs := parseTreeActiveFile.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition, localTemplateDefinition)
 
-	return errs
+	return file, errs
 }
 
 // Definition analysis for all files within a workspace.
 // It should only be done after 'ParseFilesInWorkspace()' or similar
 // TODO: REMAKE THIS FUNCTION
-func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace MapFromFileNameToGroupStatementNode) []Error {
-	if parsedFilesInWorkspace == nil {
-		panic("'parsedFilesInWorkspace' cannot be nil during definition analysis")
-	}
-
+func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace map[string]*parser.GroupStatementNode) (map[string]*checker.FileDefinition, []Error) {
 	if len(parsedFilesInWorkspace) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	var cloneParsedFilesInWorkspace MapFromFileNameToGroupStatementNode
-
-	// var globalVariableDefinition, localVariableDefinition, functionDefinition parser.SymbolDefinition
+	var cloneParsedFilesInWorkspace map[string]*parser.GroupStatementNode
 	var workspaceTemplateDefinition []*checker.TemplateDefinition
-
 	var errs []lexer.Error
+
+	analyzedFilesInWorkspace := make(map[string]*checker.FileDefinition)
 
 	for longFileName, fileParseTree := range parsedFilesInWorkspace {
 		if fileParseTree == nil {
@@ -215,23 +193,35 @@ func DefinitionAnalisisWithinWorkspace(parsedFilesInWorkspace MapFromFileNameToG
 		delete(cloneParsedFilesInWorkspace, longFileName)
 
 		workspaceTemplateDefinition = getWorkspaceTemplateDefinition(cloneParsedFilesInWorkspace)
-		// workspaceTemplateDefinition := getWorkspaceTemplateDefinition(clonedParsedFilesInWorkspace)
-		// localTemplateDefinition := types.SymbolDefinition{}
-		// globalVariableDefinition = getBuiltinVariableDefinition()
-		// localVariableDefinition = parser.SymbolDefinition{}
-		// functionDefinition = getBuiltinFunctionDefinition()
 
 		if workspaceTemplateDefinition == nil {
 			panic("'global/local/funciton/template' definition is nil. that map should always be instanciated, even if empty, for 'DefinitionAnalysis' processing")
 		}
 
 		// b. With the template definition, begin file definition analysis
-		// localErrs := fileParseTree.DefinitionAnalysis(globalVariableDefinition, localVariableDefinition, functionDefinition, workspaceTemplateDefinition, localTemplateDefinition)
-		_, localErrs := checker.DefinitionAnalysis(longFileName, fileParseTree, workspaceTemplateDefinition)
+		file, localErrs := checker.DefinitionAnalysis(longFileName, fileParseTree, workspaceTemplateDefinition)
+
+		analyzedFilesInWorkspace[longFileName] = file
 		errs = append(errs, localErrs...)
 	}
 
-	return errs
+	return analyzedFilesInWorkspace, errs
+}
+
+// TODO: not completed, need to receive the workspaceFiles (parsed and/or analyzed)
+func GoToDefinition(file *checker.FileDefinition, position lexer.Position) (fileName string, reach lexer.Range) {
+	tok, nodecontainer, parentScope, isTemplate := checker.FindAstNodeRelatedToPosition(file.Root, position)
+	if tok == nil {
+		log.Println("token not found for definition")
+		return "", lexer.Range{}
+	}
+
+	fileName, nodeDef, reach := checker.GoToDefinition(tok, nodecontainer, parentScope, file, isTemplate)
+	if nodeDef == nil {
+		return "", reach
+	}
+
+	return fileName, reach
 }
 
 // Print in JSON format the AST node to the screen. Use a program like 'jq' for pretty formatting
@@ -269,12 +259,16 @@ func getRootTemplateDefinition(root *parser.GroupStatementNode, fileName string)
 
 		templateName := string(bytes.Clone(templateHeader.TemplateName.Value))
 
+		// TODO: this is no good reguarding the typing system (to improve when type-system is ready)
 		def := &checker.TemplateDefinition{}
 		def.Name = templateName
 		def.Node = templateScope
 		def.Range = templateScope.Range
 		def.FileName = fileName
 		def.IsValid = true
+		def.InputType = &checker.DataStructureDefinition{}
+		def.InputType.Name = "any"
+		def.InputType.IsValid = true
 
 		listTemplateDefinition = append(listTemplateDefinition, def)
 		// listTemplateDefinition[templateName] = statement
@@ -284,7 +278,7 @@ func getRootTemplateDefinition(root *parser.GroupStatementNode, fileName string)
 }
 
 // Get a list of all template definition (identified with "define" keyword) within the workspace
-func getWorkspaceTemplateDefinition(parsedFilesInWorkspace MapFromFileNameToGroupStatementNode) []*checker.TemplateDefinition {
+func getWorkspaceTemplateDefinition(parsedFilesInWorkspace map[string]*parser.GroupStatementNode) []*checker.TemplateDefinition {
 	var workspaceTemplateDefinition []*checker.TemplateDefinition
 	var fileTemplateDefinition []*checker.TemplateDefinition
 

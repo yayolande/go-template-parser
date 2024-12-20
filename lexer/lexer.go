@@ -528,7 +528,7 @@ func createTokenizer() *tokenizer {
 			ID:    KEYWORD,
 		},
 		{
-			Value: `"(?:[^"\n\\]|\\.)+"`,
+			Value: `"(?:[^"\n\\]|\\.)*"`,
 			ID:    STRING,
 		},
 		{

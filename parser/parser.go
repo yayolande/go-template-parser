@@ -165,6 +165,9 @@ func (p *Parser) safeStatementGrouping(node AstNode) *ParseError {
 			}
 		case KIND_END:
 			if stackSize > 1 {
+				scopeToClose := getLastElement(p.openedNodeStack)
+				scopeToClose.Range.End = newGroup.Range.Start
+
 				p.openedNodeStack = p.openedNodeStack[:stackSize-1]
 
 				newGroup.parent = getLastElement(p.openedNodeStack)
@@ -229,6 +232,11 @@ func Parse(tokens []lexer.Token) (*GroupStatementNode, []lexer.Error) {
 			Err: errors.New("not all group statements ('if/else/define/block/with') have been properly claused")}
 
 		errs = append(errs, err)
+	}
+
+	if size := len(defaultGroupStatementNode.Statements); size > 0 {
+		defaultGroupStatementNode.Range.Start = defaultGroupStatementNode.Statements[0].GetRange().Start
+		defaultGroupStatementNode.Range.End = defaultGroupStatementNode.Statements[size-1].GetRange().End
 	}
 
 	return defaultGroupStatementNode, errs
@@ -802,7 +810,7 @@ func (p *Parser) expressionParser() (*ExpressionNode, *ParseError) {
 	expression := &ExpressionNode{}
 	expression.Kind = KIND_EXPRESSION
 	expression.Range.Start = p.peek().Range.Start
-	expression.Range.Start = lastTokenInInstruction.Range.End
+	expression.Range.End = lastTokenInInstruction.Range.End
 
 	// var currentSymbol *lexer.Token
 	currentSymbol := p.peek()

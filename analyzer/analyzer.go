@@ -96,8 +96,8 @@ type FileDefinition struct {
 	WorkspaceTemplates	[]*TemplateDefinition
 }
 
-func (f FileDefinition) GetScopedVariables(scope *parser.GroupStatementNode) map[string]parser.AstNode {
-	scopedVariables := make(map[string]parser.AstNode)
+func (f FileDefinition) GetScopedVariables(scope *parser.GroupStatementNode) map[string]*VariableDefinition {
+	scopedVariables := make(map[string]*VariableDefinition)
 
 	if scope == nil || f.ScopeToVariables == nil {
 		return scopedVariables
@@ -108,14 +108,8 @@ func (f FileDefinition) GetScopedVariables(scope *parser.GroupStatementNode) map
 		return scopedVariables
 	}
 
-	var name string
-	var node parser.AstNode
-
 	for _, variable := range listVariables {
-		name = variable.Name
-		node = variable.Node
-
-		scopedVariables[name] = node
+		scopedVariables[variable.Name] = variable
 	}
 
 	return scopedVariables
@@ -202,6 +196,7 @@ func (f FileDefinition) GetSingleFunctionDefinition(functionName string) *Functi
 	return nil
 }
 
+// TODO: replace 'currentTemplate' with 'templateName'
 func (f FileDefinition) GetSingleTemplateDefinition(template parser.AstNode) *TemplateDefinition {
 
 	for _, def := range f.Templates {
@@ -219,9 +214,27 @@ func (f FileDefinition) GetSingleTemplateDefinition(template parser.AstNode) *Te
 	return nil
 }
 
+func (f FileDefinition) GetSingleTemplateDefinitionByName(templateName string) *TemplateDefinition {
+	for _, def := range f.Templates {
+		if def.Name == templateName {
+			return def
+		}
+	}
+
+	for _, def := range f.WorkspaceTemplates {
+		if def.Name == templateName {
+			return def
+		}
+	}
+
+	return nil
+}
+
 // ------------
 // Start Here -
 // ------------
+
+// TODO: this need some more work to be usable universally by all files within need to be recreated each time
 func getBuiltinFunctionDefinition() []*FunctionDefinition {
 	dict := parser.SymbolDefinition{
 		"and":      nil,
@@ -265,32 +278,6 @@ func getBuiltinFunctionDefinition() []*FunctionDefinition {
 	return builtinFunctionDefinition
 }
 
-func NewDotVariableDefinition(fileName string, node parser.AstNode) *VariableDefinition {
-	def := &VariableDefinition{}
-
-	def.Name = "."
-	def.Node = node
-	def.Range = node.GetRange()
-	def.FileName = fileName
-	def.Type = TYPE_ANY
-	def.IsValid = true
-
-	return def
-}
-
-func NewDollarVariableDefinition(fileName string, node parser.AstNode) *VariableDefinition {
-	def := &VariableDefinition{}
-
-	def.Name = "$"
-	def.Node = node
-	def.Range = node.GetRange()
-	def.FileName = fileName
-	def.Type = TYPE_ANY
-	def.IsValid = true
-
-	return def
-}
-
 func NewVariableDefinition(variableName string, node parser.AstNode, fileName string) *VariableDefinition {
 	def := &VariableDefinition{}
 
@@ -331,8 +318,7 @@ func DefinitionAnalysis(fileName string, node *parser.GroupStatementNode, outter
 	globalVariables["."] = NewVariableDefinition(".", nil, fileInfo.Name)
 	globalVariables["$"] = NewVariableDefinition("$", nil, fileInfo.Name)
 
-	statementType, errs := definitionAnalysisRecursive(node, nil, fileInfo, globalVariables, localVariables)
-	_ = statementType
+	_, errs := definitionAnalysisRecursive(node, nil, fileInfo, globalVariables, localVariables)
 
 	return fileInfo, errs
 }
@@ -501,6 +487,7 @@ func definitionAnalysisTemplatateStatement(node *parser.TemplateStatementNode, p
 			currentTemplate = templateLocal
 		}
 
+		// TODO: replace 'currentTemplate' with 'templateName'
 		def := file.GetSingleTemplateDefinition(currentTemplate)
 		if def == nil {
 			log.Println("found nil 'TemplateDefinition' for an existing template.\n file def = %#v\n", file)
@@ -513,18 +500,21 @@ func definitionAnalysisTemplatateStatement(node *parser.TemplateStatementNode, p
 		}
 
 		if def.InputType == nil {
-			if def.Name != expressionType[0] {
-				err := parser.NewParseError(&lexer.Token{}, errors.New("template do not support this type"))
-				err.Range = node.Expression.GetRange()
-
-				errs = append(errs, err)
-			}
-
 			return expressionType, errs
 		}
 		
 		// TODO: handle comlex data type. since 'expressionType' is a string, there need a function that will
 		// convert it into '*DataStructureDefinition' and then compare it against 'def.InputType' type
+
+		/*
+		if def.Name != expressionType[0] {	// to modify
+			err := parser.NewParseError(&lexer.Token{}, errors.New("template do not support this type"))
+			err.Range = node.Expression.GetRange()
+
+			errs = append(errs, err)
+		}
+		*/
+
 
 	case parser.KIND_DEFINE_TEMPLATE, parser.KIND_BLOCK_TEMPLATE:
 		// NOTE: v.parent == TemplateScope, so we need to go deeper to reach the outer scope
@@ -1492,6 +1482,7 @@ func (v* astVisitor) Visit (node ast.Node) ast.Visitor {
 		function := &FunctionDefinition{}
 		function.Node = v.comment
 		function.Name = n.Name.Name
+		function.FileName = v.file.Name
 		function.IsValid = true
 		function.ReturnTypes = [2]string {TYPE_VOID, TYPE_ERROR}		// Default return type
 
@@ -1833,6 +1824,168 @@ func findLeadWithinAst (root parser.AstNode, position lexer.Position) (node pars
 	default: 
 		panic("unexpected AstNode type while finding corresponding node with a particular position")
 	}
+}
+
+func FindAstNodeRelatedToPosition(root *parser.GroupStatementNode, position lexer.Position) (*lexer.Token, parser.AstNode, *parser.GroupStatementNode, bool) {
+	seeker := &findAstNodeRelatedToPosition{Position: position}
+
+	log.Println("position before walker: ", position)
+	parser.Walk(seeker, root)
+	log.Printf("seeker after walker : %#v\n", seeker)
+
+	return seeker.TokenFound, seeker.NodeFound, seeker.LastParent, seeker.IsTemplate
+}
+
+type findAstNodeRelatedToPosition struct {
+	Position			lexer.Position
+	TokenFound		*lexer.Token
+	LastParent		*parser.GroupStatementNode
+	NodeFound		parser.AstNode			// nodeStatement
+	IsTemplate		bool
+}
+
+func (v *findAstNodeRelatedToPosition) Visit(node parser.AstNode) parser.Visitor {
+	// TODO: the token in question can be: 'variable', 'function', 'template name', 'keyword(no-op)', 'garbase(no-op)'
+
+	if node == nil {
+		return nil
+	}
+
+	// 1. Going down the node tree
+	if v.TokenFound != nil {
+		return nil
+	}
+
+	if ! node.GetRange().Contains(v.Position) {
+		log.Println("NOPE, POSITION OUT OF RANGE, GO ELSEWHERE. nodeRange = ", node.GetRange())
+		return nil
+	}
+
+	log.Println("Hourray, POSITION IS IN RANGE. node = ", node)
+
+	switch n := node.(type) {
+	case *parser.GroupStatementNode:
+		v.LastParent = n
+		return v
+	case *parser.TemplateStatementNode:
+		if n.TemplateName.Range.Contains(v.Position) {
+			v.TokenFound = n.TemplateName
+			v.NodeFound = n
+			v.IsTemplate = true
+		}
+
+		v.NodeFound = n
+
+		return v
+	case *parser.VariableAssignationNode:
+		if n.VariableName.Range.Contains(v.Position) {
+			v.TokenFound = n.VariableName
+			v.NodeFound = n
+			v.IsTemplate = false
+
+			return nil
+		}
+
+		v.NodeFound = n
+
+		return v
+	case *parser.VariableDeclarationNode:
+		for _, variable := range n.VariableNames {
+			if variable.Range.Contains(v.Position) {
+				v.TokenFound = variable
+				v.NodeFound = n
+				v.IsTemplate = false
+
+				return nil
+			}
+		}
+
+		v.NodeFound = n
+
+		return v
+	case *parser.MultiExpressionNode:
+		for _, expression := range n.Expressions {
+			if expression.Range.Contains(v.Position) {
+				if v.NodeFound == nil {
+					v.NodeFound = n
+				}
+
+				return v
+			}
+		}
+
+		return nil
+	case *parser.ExpressionNode:
+		for _, symbol := range n.Symbols {
+			if symbol.Range.Contains(v.Position) {
+				v.TokenFound = symbol
+				v.IsTemplate = false
+
+				if v.NodeFound == nil {
+					v.NodeFound = n
+				}
+
+				return nil
+			}
+		}
+
+		return nil
+	}
+
+	return nil
+}
+
+// TODO: Template should be able to return many definition locations in case many templates in the worksapce have a similar name
+// However with the way I designed my Data Structure, it is almost impossible to anything beside one result for template
+// All in all, I really need a make hover for definition analysis. But this will wait after I have released the first version 
+// and learend some theory and Data Structure related to 'Type Theory'
+func GoToDefinition(from *lexer.Token, parentNodeStatement parser.AstNode, parentScope *parser.GroupStatementNode, file *FileDefinition, isTemplate bool) (fileName string, defFound parser.AstNode, reach lexer.Range) {
+	// 1. Try to find the template, if appropriate
+	if isTemplate {
+		name := string(from.Value)
+		templateFound := file.GetSingleTemplateDefinitionByName(name)
+
+		if templateFound == nil {
+			return file.Name, nil, getZeroRangeValue()
+		}
+
+		return templateFound.FileName, templateFound.Node, templateFound.Range
+	}
+
+	name := string(from.Value)
+
+	// 2. Try to found the function
+	functionFound := file.GetSingleFunctionDefinition(name)
+	if functionFound != nil {
+		return functionFound.FileName, functionFound.Node, functionFound.Range
+	}
+
+	// 3. Found the multi-scope varialbe
+	const MAX_LOOP_REPETITION int = 20
+	var count int = 0
+
+	for parentScope != nil {
+		count ++
+		if count > MAX_LOOP_REPETITION {
+			panic("possible infinite loop detected while processing 'goToDefinition()'")
+		}
+
+		scopedVariables := file.GetScopedVariables(parentScope)
+
+		if len(scopedVariables) == 0 {
+			parentScope = parentScope.Parent()
+			continue
+		}
+
+		variableFound, ok := scopedVariables[name]
+		if ok {
+			return variableFound.FileName, variableFound.Node, variableFound.Range
+		}
+
+		parentScope = parentScope.Parent()
+	}
+
+	return file.Name, nil, getZeroRangeValue()
 }
 
 /*

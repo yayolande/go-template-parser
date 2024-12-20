@@ -2,6 +2,7 @@ package lexer
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 )
 
@@ -234,6 +235,90 @@ func TestConvertToTextEditorPosition (t *testing.T) {
 
 			if got != expected {
 				t.Errorf("\n Expected : %#v\n But got: %#v\n", expected, got)
+			}
+		})
+	}
+}
+
+func TestRangeContains(t *testing.T) {
+	data := [] struct {
+		inputPosition	Position
+		inputRange		Range
+		expect			bool
+	} {
+		{
+			inputPosition: Position{Line: 2, Character: 3},
+			inputRange: Range{
+				Start: Position{Line: 2, Character: 0},
+				End: Position{Line: 2, Character: 4},
+			},
+			expect: true,
+		},
+		{
+			inputPosition: Position{Line: 2, Character: 0},
+			inputRange: Range{
+				Start: Position{Line: 2, Character: 0},
+				End: Position{Line: 2, Character: 4},
+			},
+			expect: true,
+		},
+		{
+			inputPosition: Position{Line: 2, Character: 4},
+			inputRange: Range{
+				Start: Position{Line: 2, Character: 0},
+				End: Position{Line: 2, Character: 4},
+			},
+			expect: true,
+		},
+		{
+			inputPosition: Position{Line: 2, Character: 4},
+			inputRange: Range{
+				Start: Position{Line: 1, Character: 10},
+				End: Position{Line: 1, Character: 14},
+			},
+			expect: false,
+		},
+		{
+			inputPosition: Position{Line: 2, Character: 4},
+			inputRange: Range{
+				Start: Position{Line: 2, Character: 5},
+				End: Position{Line: 2, Character: 7},
+			},
+			expect: false,
+		},
+		{
+			inputPosition: Position{Line: 2, Character: 4},
+			inputRange: Range{
+				Start: Position{Line: 3, Character: 0},
+				End: Position{Line: 3, Character: 4},
+			},
+			expect: false,
+		},
+		{
+			inputPosition: Position{Line: 2, Character: 4},
+			inputRange: Range{
+				Start: Position{Line: 1, Character: 0},
+				End: Position{Line: 3, Character: 4},
+			},
+			expect: true,
+		},
+		{
+			inputPosition: Position{Line: 2, Character: 4},
+			inputRange: Range{
+				Start: Position{Line: 3, Character: 0},
+				End: Position{Line: 2, Character: 4},
+			},
+			expect: false,
+		},
+	}
+
+	for count, datium := range data {
+		name := "Range_Contains_Test_" + strconv.Itoa(count)
+		t.Run(name, func(t *testing.T) {
+			got := datium.inputRange.Contains(datium.inputPosition)
+
+			if got != datium.expect {
+				t.Errorf("\n Expected %v ::: Got = %v\n", datium.expect, got)
 			}
 		})
 	}
